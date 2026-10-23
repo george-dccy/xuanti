@@ -79,6 +79,7 @@ from .platforms.kuaishou import (resolve_ks_user_id, resolve_ks_photo_id,
                   parse_self_user as parse_ks_self_user,
                   MANAGE_URL as KS_MANAGE_URL)
 from .platforms.channels import parse_self_user as parse_channels_self_user
+from .platforms.zhihu import resolve_zhihu_user_token
 from .engine import Downloader, MonitorEngine
 from .engine.share_downloader import (
     clean_platform_share_target,
@@ -1532,13 +1533,14 @@ async def login_browser_poll(task_id: str):
 class CookieIn(BaseModel):
     cookie: str
     nickname: str = ""
-    platform: str = "douyin"            # douyin | xhs
+    platform: str = "douyin"            # douyin | xhs | kuaishou | zhihu | taobao
 
 
 @app.post("/api/login/cookie")
 async def login_cookie(body: CookieIn):
     """Cookie 粘贴兜底登录:转成浏览器登录态。"""
-    platform = body.platform if body.platform in ("douyin", "xhs", "kuaishou") else "douyin"
+    platform = body.platform if body.platform in (
+        "douyin", "xhs", "kuaishou", "zhihu", "taobao") else "douyin"
     state = cookie_string_to_state(body.cookie, platform)
     with get_session() as s:
         acc = DouyinAccount(
@@ -1553,7 +1555,7 @@ async def login_cookie(body: CookieIn):
 
 @app.get("/api/overview/summary")
 async def overview_summary(platform: str = "douyin"):
-    if platform not in {"douyin", "xhs", "kuaishou", "shipinhao"}:
+    if platform not in {"douyin", "xhs", "kuaishou", "shipinhao", "zhihu", "taobao"}:
         raise HTTPException(422, "平台类型无效")
     with get_session() as session:
         def count(model, *conditions):
@@ -3192,6 +3194,13 @@ async def refresh_account_profile(account_id: int):
         profile_transport = (resolve_transport(
             cfg, "douyin", "account_profile", acc)
             if platform == "douyin" else None)
+        if platform in {"zhihu", "taobao"}:
+            return {
+                "ok": True, "nickname": acc.nickname, "platform": acc.platform,
+                "douyin_id": acc.douyin_id, "sec_uid": acc.sec_uid,
+                "status": acc.status, "has_read_login": bool(acc.storage_state),
+                "has_creator": False,
+            }
     manual_browser = open_browsers.get(account_id)
     if (manual_browser is not None
             and bool(getattr(manual_browser, "active", True))
@@ -3255,6 +3264,9 @@ async def relogin_start(account_id: int, scope: str = "auto"):
         if not acc:
             raise HTTPException(404, "账号不存在")
         platform = acc.platform
+        if platform in {"zhihu", "taobao"}:
+            label = "知乎" if platform == "zhihu" else "淘宝"
+            raise HTTPException(400, f"{label}账号使用 Cookie 登录，请删除旧账号后重新粘贴 Cookie")
         requested_scope = str(scope or "auto").strip().lower()
         if requested_scope not in {"auto", "read", "creator"}:
             raise HTTPException(400, "登录范围取值无效")
@@ -7258,9 +7270,9 @@ async def export_keyword_collection(job_id: int, content_id: int | None = None,
 
 
 class TargetIn(BaseModel):
-    url_or_secuid: str                       # 抖音/小红书主页链接 或 小红书关键词
-    platform: str = "douyin"                # douyin | xhs
-    target_kind: str = "creator"            # creator | keyword(仅小红书)
+    url_or_secuid: str                       # 平台主页链接 / 用户 ID / 小红书关键词
+    platform: str = "douyin"                # douyin | xhs | kuaishou | zhihu | taobao
+    target_kind: str = "creator"            # creator | keyword(小红书/淘宝)
     account_id: int | None = None
     interval_seconds: int = 300
     initial_backfill_count: int | None = None
@@ -7273,6 +7285,7 @@ class TargetIn(BaseModel):
     record_media_filter: str = "all"
     min_like_count: int = 0
     min_comment_count: int = 0
+    min_sales_count: int = 0
     recent_days: int = 0
     include_keywords: list[str] = PydanticField(default_factory=list)
     exclude_keywords: list[str] = PydanticField(default_factory=list)
@@ -7293,6 +7306,7 @@ class TargetUpdate(BaseModel):
     record_media_filter: str | None = None
     min_like_count: int | None = None
     min_comment_count: int | None = None
+    min_sales_count: int | None = None
     recent_days: int | None = None
     include_keywords: list[str] | None = None
     exclude_keywords: list[str] | None = None
@@ -7307,6 +7321,7 @@ def _validate_monitor_strategy(*, max_scrolls: int | None,
                                record_media_filter: str | None,
                                min_like_count: int | None,
                                min_comment_count: int | None,
+                               min_sales_count: int | None,
                                recent_days: int | None) -> None:
     if max_scrolls is not None and not 0 <= max_scrolls <= 30:
         raise HTTPException(400, "抓取深度须为 0~30；0 表示使用平台默认值")
@@ -7319,6 +7334,8 @@ def _validate_monitor_strategy(*, max_scrolls: int | None,
         raise HTTPException(400, "最低点赞数须为 0~1000000000")
     if min_comment_count is not None and not 0 <= min_comment_count <= 1_000_000_000:
         raise HTTPException(400, "最低评论数须为 0~1000000000")
+    if min_sales_count is not None and not 0 <= min_sales_count <= 1_000_000_000:
+        raise HTTPException(400, "最低月销量须为 0~1000000000")
     if recent_days is not None and not 0 <= recent_days <= 3650:
         raise HTTPException(400, "发布时间范围须为 0~3650 天；0 表示不限")
 
@@ -7330,9 +7347,11 @@ def _clean_platform_target_input(value: str, platform: str) -> str:
             item.platform == platform for item in detected_links):
         platform_name = {
             "douyin": "抖音", "xhs": "小红书", "kuaishou": "快手",
+            "zhihu": "知乎", "taobao": "淘宝",
         }.get(platform, platform)
         detected_names = {
             "douyin": "抖音", "xhs": "小红书", "kuaishou": "快手",
+            "zhihu": "知乎", "taobao": "淘宝",
             "generic": "其他站点",
         }
         names = "、".join(dict.fromkeys(
@@ -7368,11 +7387,12 @@ def _ensure_creator_monitor_available(session, *, platform: str, sec_uid: str,
 
 @app.post("/api/monitors")
 async def add_monitor(body: TargetIn):
-    platform = body.platform if body.platform in ("douyin", "xhs", "kuaishou") else "douyin"
+    platform = body.platform if body.platform in (
+        "douyin", "xhs", "kuaishou", "zhihu", "taobao") else "douyin"
     sec_uid = keyword = xsec_token = ""
     kind = "creator"
 
-    if platform == "xhs" and body.target_kind == "keyword":
+    if platform == "taobao" or (platform == "xhs" and body.target_kind == "keyword"):
         kind = "keyword"
         keyword = body.url_or_secuid.strip()
         if not keyword:
@@ -7393,6 +7413,10 @@ async def add_monitor(body: TargetIn):
         sec_uid = await resolve_sec_uid(target_input, cfg.engine.user_agent)
         if not sec_uid:
             raise HTTPException(400, "无法解析 sec_uid,请粘贴完整分享文案、主页链接 / v.douyin.com 短链 / sec_uid")
+    elif platform == "zhihu":
+        sec_uid = resolve_zhihu_user_token(target_input) or ""
+        if not sec_uid:
+            raise HTTPException(400, "无法解析知乎 url_token,请粘贴知乎用户主页 /people/<url_token> 或直接填写 url_token")
 
     dl = body.download_dir.strip()
     if not 1 <= body.interval_seconds <= 86400:
@@ -7405,6 +7429,7 @@ async def add_monitor(body: TargetIn):
         record_media_filter=body.record_media_filter,
         min_like_count=body.min_like_count,
         min_comment_count=body.min_comment_count,
+        min_sales_count=body.min_sales_count,
         recent_days=body.recent_days)
     if dl:
         try:
@@ -7420,6 +7445,14 @@ async def add_monitor(body: TargetIn):
             if (not monitor_acc or monitor_acc.platform != "douyin"
                     or monitor_acc.status != "active"):
                 raise HTTPException(400, "所选抖音账号不存在或登录态已失效")
+        elif platform in {"zhihu", "taobao"}:
+            if not body.account_id:
+                label = "知乎" if platform == "zhihu" else "淘宝"
+                raise HTTPException(400, f"{label}监控必须绑定一个已登录{label}账号，请先粘贴 Cookie")
+            monitor_acc = s.get(DouyinAccount, body.account_id)
+            if (not monitor_acc or monitor_acc.platform != platform
+                    or monitor_acc.status != "active" or not monitor_acc.storage_state):
+                raise HTTPException(400, "所选账号不存在、登录态已失效或未保存 Cookie")
         elif body.account_id:
             monitor_acc = s.get(DouyinAccount, body.account_id)
             if not monitor_acc or monitor_acc.platform != platform:
@@ -7432,10 +7465,10 @@ async def add_monitor(body: TargetIn):
         else:
             _ensure_creator_monitor_available(
                 s, platform=platform, sec_uid=sec_uid, account_id=body.account_id)
-        q = body.video_quality.strip()
+        q = "" if platform in {"xhs", "zhihu", "taobao"} else body.video_quality.strip()
         if q and q not in QUALITY_CHOICES:
             raise HTTPException(400, f"画质取值无效: {q}")
-        backfill_count = (cfg.engine.monitor_initial_backfill_count
+        backfill_count = (0 if platform == "taobao" else cfg.engine.monitor_initial_backfill_count
                           if body.initial_backfill_count is None
                           else body.initial_backfill_count)
         if backfill_count < -1 or backfill_count > 1000:
@@ -7449,13 +7482,17 @@ async def add_monitor(body: TargetIn):
                           account_id=body.account_id or None,
                           interval_seconds=body.interval_seconds, download_dir=dl,
                           initial_backfill_count=backfill_count, video_quality=q,
-                          download_enabled=body.download_enabled,
-                          media_filter=body.media_filter,
+                          download_enabled=(False if platform == "zhihu"
+                                             else body.download_enabled),
+                          media_filter=("all" if platform in {"zhihu", "taobao"}
+                                        else body.media_filter),
                           max_scrolls=body.max_scrolls,
                           max_items_per_scan=body.max_items_per_scan,
-                          record_media_filter=body.record_media_filter,
+                          record_media_filter=("all" if platform in {"zhihu", "taobao"}
+                                                else body.record_media_filter),
                           min_like_count=body.min_like_count,
                           min_comment_count=body.min_comment_count,
+                          min_sales_count=body.min_sales_count,
                           recent_days=body.recent_days,
                           include_keywords=_dump_meta_tags(
                               _meta_tags(body.include_keywords)),
@@ -7488,35 +7525,38 @@ async def update_monitor(tid: int, body: TargetUpdate):
                 raise HTTPException(400, "首次历史回填仅能在第一次扫描前修改")
             if body.initial_backfill_count < -1 or body.initial_backfill_count > 1000:
                 raise HTTPException(400, "首次回填数须为 -1 或 0~1000")
-            t.initial_backfill_count = body.initial_backfill_count
+            t.initial_backfill_count = 0 if t.platform == "taobao" else body.initial_backfill_count
         if body.video_quality is not None:
             q = body.video_quality.strip()
             if q and q not in QUALITY_CHOICES:
                 raise HTTPException(400, f"画质取值无效: {q}")
-            t.video_quality = q
+            t.video_quality = "" if t.platform in {"xhs", "zhihu", "taobao"} else q
         if body.download_enabled is not None:
-            t.download_enabled = body.download_enabled
+            t.download_enabled = False if t.platform == "zhihu" else body.download_enabled
         if body.media_filter is not None:
             if body.media_filter not in ("all", "video", "images"):
                 raise HTTPException(400, "媒体筛选须为 all、video 或 images")
-            t.media_filter = body.media_filter
+            t.media_filter = "all" if t.platform in {"zhihu", "taobao"} else body.media_filter
         _validate_monitor_strategy(
             max_scrolls=body.max_scrolls,
             max_items_per_scan=body.max_items_per_scan,
             record_media_filter=body.record_media_filter,
             min_like_count=body.min_like_count,
             min_comment_count=body.min_comment_count,
+            min_sales_count=body.min_sales_count,
             recent_days=body.recent_days)
         if body.max_scrolls is not None:
             t.max_scrolls = body.max_scrolls
         if body.max_items_per_scan is not None:
             t.max_items_per_scan = body.max_items_per_scan
         if body.record_media_filter is not None:
-            t.record_media_filter = body.record_media_filter
+            t.record_media_filter = "all" if t.platform in {"zhihu", "taobao"} else body.record_media_filter
         if body.min_like_count is not None:
             t.min_like_count = body.min_like_count
         if body.min_comment_count is not None:
             t.min_comment_count = body.min_comment_count
+        if body.min_sales_count is not None:
+            t.min_sales_count = body.min_sales_count
         if body.recent_days is not None:
             t.recent_days = body.recent_days
         if body.include_keywords is not None:
@@ -7527,6 +7567,9 @@ async def update_monitor(tid: int, body: TargetUpdate):
             acc = s.get(DouyinAccount, body.account_id)
             if not acc or acc.platform != t.platform or acc.status != "active":
                 raise HTTPException(400, "账号不存在、登录态失效或与监控平台不匹配")
+            if t.platform in {"zhihu", "taobao"} and not acc.storage_state:
+                label = "知乎" if t.platform == "zhihu" else "淘宝"
+                raise HTTPException(400, f"{label}账号未保存 Cookie 登录态")
             if t.target_kind != "keyword":
                 _ensure_creator_monitor_available(
                     s, platform=t.platform, sec_uid=t.sec_uid,
@@ -7616,6 +7659,8 @@ def _content_ordering(sort: str):
         return ContentRecord.like_count.desc(), ContentRecord.id.desc()
     if sort == "comments_desc":
         return ContentRecord.comment_count.desc(), ContentRecord.id.desc()
+    if sort == "sales_desc":
+        return ContentRecord.sales_count.desc(), ContentRecord.id.desc()
     return ContentRecord.create_time.desc(), ContentRecord.id.desc()
 
 
@@ -8358,6 +8403,7 @@ def _target_dict(t: MonitorTarget) -> dict:
         "record_media_filter": t.record_media_filter,
         "min_like_count": t.min_like_count,
         "min_comment_count": t.min_comment_count,
+        "min_sales_count": t.min_sales_count,
         "recent_days": t.recent_days,
         "include_keywords": _load_meta_tags(t.include_keywords),
         "exclude_keywords": _load_meta_tags(t.exclude_keywords),
@@ -8400,8 +8446,10 @@ def _content_dict(r: ContentRecord, source: dict | None = None) -> dict:
         "aweme_id": r.aweme_id, "desc": r.desc, "media_type": r.media_type,
         "quality": r.quality, "create_time": r.create_time, "cover_url": r.cover_url,
         "like_count": r.like_count, "comment_count": r.comment_count,
+        "sales_count": r.sales_count, "price": r.price, "shop_name": r.shop_name,
         "duration": r.duration, "retry_count": r.retry_count,
         "download_status": r.download_status, "local_path": r.local_path, "error": r.error,
+        "source_url": r.source_url,
         "captured_at": captured.isoformat() if captured else None,
         "source": source or _content_source(r.target_id, r.platform),
     }

@@ -1810,6 +1810,8 @@
     <button role="tab" data-pf="xhs" onclick="switchPlatform('xhs')">小红书</button>
     <button role="tab" data-pf="kuaishou" onclick="switchPlatform('kuaishou')">快手</button>
     <button role="tab" data-pf="shipinhao" onclick="switchPlatform('shipinhao')">视频号</button>
+    <button role="tab" data-pf="zhihu" onclick="switchPlatform('zhihu')">知乎</button>
+    <button role="tab" data-pf="taobao" onclick="switchPlatform('taobao')">淘宝</button>
   </div>
   <div class="header-actions">
     <button class="ghost command-trigger" id="command-trigger" type="button" aria-label="搜索功能" aria-haspopup="dialog" aria-controls="command-dialog" aria-keyshortcuts="Control+k Meta+k" title="搜索功能（Ctrl / ⌘ K）"><svg aria-hidden="true"><use href="#i-logo"/></svg><span>搜索功能</span><kbd>Ctrl K</kbd></button>
@@ -1835,7 +1837,7 @@
     <button class="navitem notsh-only" data-tab="comments" onclick="switchTab('comments', true)"><svg><use href="#i-msg"/></svg><span class="nav-label">评论监控</span><span class="nav-badge" id="tb-watch">0</span></button>
     <button class="navitem dy-only" data-tab="danmaku" onclick="switchTab('danmaku', true)"><svg><use href="#i-captions"/></svg><span class="nav-label">弹幕监控</span><span class="nav-badge" id="tb-danmaku">0</span></button>
     <div class="nav-sep">本账号</div>
-    <button class="navitem" data-tab="hub" onclick="switchTab('hub', true)"><svg><use href="#i-library"/></svg><span class="nav-label">我的内容</span></button>
+    <button class="navitem notzhihu-only" data-tab="hub" onclick="switchTab('hub', true)"><svg><use href="#i-library"/></svg><span class="nav-label">我的内容</span></button>
     <div class="nav-sep">工具</div>
     <button class="navitem" data-tab="queue" onclick="switchTab('queue', true)"><svg><use href="#i-list"/></svg><span class="nav-label">任务队列</span><span class="nav-badge" id="tb-queue">0</span></button>
     <button class="navitem pub-only" data-tab="publish" onclick="switchTab('publish', true)"><svg><use href="#i-send"/></svg><span class="nav-label">发布</span><span class="nav-badge" id="tb-pub">0</span></button>
@@ -1927,6 +1929,8 @@
         <button class="ghost ks-only" onclick="startKsCreatorLogin()" title="普通快手扫码登录已可用于发布；仅在创作平台仍提示登录时使用"><svg><use href="#i-send"/></svg>创作平台登录（备用）</button>
         <button class="ghost ks-only" onclick="toggleCookie()">Cookie 粘贴</button>
         <button class="sh-only" onclick="startChannelsLogin()"><svg><use href="#i-login"/></svg>视频号登录</button>
+        <button class="zhihu-only" onclick="toggleCookie()"><svg><use href="#i-login"/></svg>粘贴知乎 Cookie</button>
+        <button class="taobao-only" onclick="toggleCookie()"><svg><use href="#i-login"/></svg>粘贴淘宝 Cookie</button>
       </div>
       <div id="qrbox" style="display:none;margin-bottom:14px">
         <div class="mut" id="qrstatus">准备中…</div>
@@ -2315,7 +2319,7 @@
               <option value="0">不下载历史作品</option><option value="5">最近 5 条</option>
               <option value="20">最近 20 条</option><option value="-1">尽可能全量</option>
           </select></div>
-          <div class="form-field"><label for="t-download">自动下载范围</label><select id="t-download">
+          <div class="form-field" id="t-download-wrap"><label for="t-download">自动下载范围</label><select id="t-download">
               <option value="all">全部作品</option><option value="video">仅视频</option>
               <option value="images">仅图集</option><option value="none">仅记录，不下载</option>
           </select></div>
@@ -2334,7 +2338,7 @@
                 <option value="12">12 条</option><option value="20">20 条</option>
                 <option value="50">50 条</option><option value="100">100 条</option>
               </select></div>
-              <div class="form-field"><label for="t-record-media">作品类型</label><select id="t-record-media">
+              <div class="form-field" id="t-record-media-wrap"><label for="t-record-media">作品类型</label><select id="t-record-media">
                 <option value="all">全部入库</option><option value="video">仅视频</option>
                 <option value="images">仅图文/图集</option>
               </select></div>
@@ -2343,9 +2347,9 @@
                 <div class="field-help">最近 N 天；0 表示不限</div></div>
             </div>
             <div class="form-grid cols-4">
-              <div class="form-field"><label for="t-min-likes">最低点赞数</label>
+              <div class="form-field"><label for="t-min-likes" id="t-min-likes-label">最低点赞数</label>
                 <input id="t-min-likes" type="number" min="0" max="1000000000" value="0" inputmode="numeric"></div>
-              <div class="form-field"><label for="t-min-comments">最低评论数</label>
+              <div class="form-field" id="t-min-comments-wrap"><label for="t-min-comments">最低评论数</label>
                 <input id="t-min-comments" type="number" min="0" max="1000000000" value="0" inputmode="numeric"></div>
               <div class="form-field"><label for="t-include-keywords">必须包含</label>
                 <input id="t-include-keywords" maxlength="320" placeholder="多个词用逗号分隔"></div>
@@ -3075,7 +3079,7 @@
       <select id="content-group" onchange="onContentMetaFilter()" aria-label="按分组筛选作品"><option value="">全部分组</option></select>
       <select id="content-tag" onchange="onContentMetaFilter()" aria-label="按标签筛选作品"><option value="">全部标签</option></select>
       <select id="content-type" onchange="refreshContents(true)" aria-label="按作品类型筛选">
-        <option value="">全部类型</option><option value="video">视频</option><option value="images">图集 / 图文</option>
+        <option value="">全部类型</option><option value="video">视频</option><option value="images">图集 / 图文</option><option value="text">回答 / 文章</option>
       </select>
       <select id="content-status" onchange="refreshContents(true)" aria-label="按下载状态筛选">
         <option value="">全部状态</option><option value="pending">等待中</option><option value="downloading">下载中</option>
@@ -3086,7 +3090,7 @@
       <select id="content-sort" onchange="refreshContents(true)" aria-label="作品排序">
         <option value="captured_desc">最近抓取</option><option value="captured_asc">最早抓取</option>
         <option value="create_desc">最新发布</option><option value="create_asc">最早发布</option>
-        <option value="likes_desc">点赞最多</option><option value="comments_desc">评论最多</option>
+        <option value="likes_desc">点赞最多</option><option value="comments_desc">评论最多</option><option value="sales_desc">月销量最高</option>
       </select>
       <span class="filter-count" id="content-filter-count" role="status" aria-live="polite"></span>
       <div class="toolbar-actions"><span class="toolbar-actions-label">操作</span>

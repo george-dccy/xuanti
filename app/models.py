@@ -23,7 +23,7 @@ class TaskSubmission(SQLModel, table=True):
 class DouyinAccount(SQLModel, table=True):
     """登录得到的平台账号(浏览器会话持有者)。表名沿用历史,实际承载多平台账号。"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    platform: str = Field(default="douyin", index=True)  # douyin | xhs
+    platform: str = Field(default="douyin", index=True)  # douyin | xhs | zhihu | taobao
     nickname: str = ""
     sec_uid: str = ""              # 抖音 sec_uid / 小红书 user_id
     uid: str = ""                  # 抖音数字 uid(= IM device_id,用于 frontier-im WS 接收)
@@ -107,9 +107,9 @@ class MonitorIdReservation(SQLModel, table=True):
 
 
 class MonitorTarget(SQLModel, table=True):
-    """被监控的对象。抖音=用户;小红书=创作者(creator)或搜索关键词(keyword)。"""
+    """被监控的对象。抖音/快手=用户，小红书=创作者或关键词，知乎=作者，淘宝=搜索词。"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    platform: str = Field(default="douyin", index=True)  # douyin | xhs
+    platform: str = Field(default="douyin", index=True)  # douyin | xhs | zhihu | taobao
     target_kind: str = "creator"   # creator(账号/创作者) | keyword(小红书搜索词)
     keyword: str = ""              # target_kind=keyword 时的搜索词
     sec_uid: str = Field(default="", index=True)  # 抖音 sec_uid / 小红书 user_id
@@ -132,6 +132,7 @@ class MonitorTarget(SQLModel, table=True):
     record_media_filter: str = "all"        # all | video | images，仅控制是否入库
     min_like_count: int = 0
     min_comment_count: int = 0
+    min_sales_count: int = 0             # 淘宝:最低月销量
     recent_days: int = 0                    # 0=不限发布时间
     include_keywords: str = "[]"            # JSON 字符串数组，任一命中
     exclude_keywords: str = "[]"            # JSON 字符串数组，任一命中即排除
@@ -244,16 +245,19 @@ class NotificationChannel(SQLModel, table=True):
 class ContentRecord(SQLModel, table=True):
     """抓到的一条作品/笔记。"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    platform: str = Field(default="douyin", index=True)  # douyin | xhs
+    platform: str = Field(default="douyin", index=True)  # douyin | xhs | zhihu | taobao
     target_id: int = Field(index=True)
-    aweme_id: str = Field(index=True)  # 抖音 aweme_id / 小红书 note_id
+    aweme_id: str = Field(index=True)  # 抖音 aweme_id / 小红书 note_id / 知乎作品 ID
     desc: str = ""
-    media_type: str = "video"          # video | images
+    media_type: str = "video"          # video | images | text
     quality: str = ""                  # 实际下载的画质,如 1080p
     create_time: int = 0               # 作品发布时间(unix 秒)
     cover_url: str = ""
     like_count: int = 0                # 点赞数
     comment_count: int = 0             # 评论数
+    sales_count: int = 0               # 淘宝:月销量
+    price: float = 0.0                 # 淘宝:当前显示价格
+    shop_name: str = ""                # 淘宝:店铺名称
     duration: int = 0                  # 时长(秒)
     media_json: str = ""               # 媒体直链快照(JSON),用于失败重试
     xsec_token: str = ""               # 小红书:重新拉详情(feed)所需令牌
@@ -262,6 +266,7 @@ class ContentRecord(SQLModel, table=True):
     retry_count: int = 0               # 已重试次数
     local_path: str = ""
     error: str = ""
+    source_url: str = ""               # 原作品链接(知乎回答/文章等文本作品)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

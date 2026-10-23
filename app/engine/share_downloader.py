@@ -53,6 +53,8 @@ _PLATFORM_DOMAINS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("douyin", ("douyin.com", "iesdouyin.com")),
     ("xhs", ("xiaohongshu.com", "xhslink.com")),
     ("kuaishou", ("kuaishou.com", "kwai.com", "gifshow.com")),
+    ("zhihu", ("zhihu.com",)),
+    ("taobao", ("taobao.com", "tmall.com")),
     ("bilibili", ("bilibili.com", "b23.tv")),
     ("weibo", ("weibo.com", "weibo.cn")),
     ("wechat", ("weixin.qq.com", "qq.com")),

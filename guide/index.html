@@ -42,22 +42,24 @@
         <a href="xhs/"><strong>小红书</strong><span>双登录、笔记发布与私信 →</span></a>
         <a href="kuaishou/"><strong>快手</strong><span>作品、评论监控与发布 →</span></a>
         <a href="shipinhao/"><strong>视频号</strong><span>本账号作品、数据与发布 →</span></a>
+        <a href="zhihu/"><strong>知乎</strong><span>回答 / 文章监控 →</span></a>
+        <a href="taobao/"><strong>淘宝</strong><span>热销女装监控与主图下载 →</span></a>
       </div>
       <div class="actions"><a class="button" href="#install">开始安装</a><a class="button secondary" href="#first-task">已经装好？开始第一个任务</a></div>
       <div class="note"><strong>在线文档 ≠ 在线运行。</strong>本指南和<a href="../">在线体验</a>可以直接打开；体验页使用示例数据。真实登录、采集、下载和发布需要在自己的电脑启动 CreatorHub。关闭服务或电脑休眠后，本地任务不会持续执行。</div>
       <h2>先弄清楚三个词</h2>
-      <dl><dt>平台账号</dt><dd>你登录 CreatorHub 的抖音、小红书、快手或视频号账号，用来执行任务。</dd><dt>监控目标</dt><dd>你想持续查看的创作者或作品，不等于登录账号。</dd><dt>任务与记录</dt><dd>任务是“准备做什么、正在做什么”；记录是“已经发现或处理的内容”。任务保存成功，不代表已经产生结果。</dd></dl>
+      <dl><dt>平台账号</dt><dd>你登录 CreatorHub 的抖音、小红书、快手、视频号、知乎或淘宝账号，用来执行任务。</dd><dt>监控目标</dt><dd>你想持续查看的创作者、搜索词或作品，不等于登录账号。</dd><dt>任务与记录</dt><dd>任务是“准备做什么、正在做什么”；记录是“已经发现或处理的内容”。任务保存成功，不代表已经产生结果。</dd></dl>
       <h2>平台能力速查</h2>
-      <div class="table-scroll"><table><caption>按当前项目实现整理；平台切换后以可见入口为准</caption><thead><tr><th scope="col">功能</th><th scope="col">抖音</th><th scope="col">小红书</th><th scope="col">快手</th><th scope="col">视频号</th></tr></thead><tbody>
-      <tr><th scope="row">作品 / 评论监控</th><td>支持</td><td>支持</td><td>支持</td><td>仅本账号数据</td></tr>
-      <tr><th scope="row">关键词批量采集</th><td>支持</td><td>支持</td><td>—</td><td>—</td></tr>
-      <tr><th scope="row">短视频弹幕</th><td>支持</td><td>—</td><td>—</td><td>—</td></tr>
-      <tr><th scope="row">内容下载</th><td>支持</td><td>图集 / 视频</td><td>支持</td><td>—</td></tr>
-      <tr><th scope="row">发布</th><td>支持</td><td>图集 / 视频 / 定时</td><td>支持</td><td>支持</td></tr>
-      <tr><th scope="row">自动评论 / 回复</th><td>支持</td><td>支持</td><td>支持</td><td>—</td></tr>
-      <tr><th scope="row">我的内容</th><td>作品 / 关注 / 粉丝 / 私信</td><td>作品 / 关注 / 粉丝 / 私信</td><td>作品 / 关注 / 粉丝</td><td>作品 / 数据 / 评论</td></tr>
+      <div class="table-scroll"><table><caption>按当前项目实现整理；平台切换后以可见入口为准</caption><thead><tr><th scope="col">功能</th><th scope="col">抖音</th><th scope="col">小红书</th><th scope="col">快手</th><th scope="col">视频号</th><th scope="col">知乎</th><th scope="col">淘宝</th></tr></thead><tbody>
+      <tr><th scope="row">作品 / 评论监控</th><td>支持</td><td>支持</td><td>支持</td><td>仅本账号数据</td><td>回答 / 文章</td><td>热销商品</td></tr>
+      <tr><th scope="row">关键词批量采集</th><td>支持</td><td>支持</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><th scope="row">短视频弹幕</th><td>支持</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><th scope="row">内容下载</th><td>支持</td><td>图集 / 视频</td><td>支持</td><td>—</td><td>仅记录原文</td><td>商品主图</td></tr>
+      <tr><th scope="row">发布</th><td>支持</td><td>图集 / 视频 / 定时</td><td>支持</td><td>支持</td><td>—</td><td>—</td></tr>
+      <tr><th scope="row">自动评论 / 回复</th><td>支持</td><td>支持</td><td>支持</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><th scope="row">我的内容</th><td>作品 / 关注 / 粉丝 / 私信</td><td>作品 / 关注 / 粉丝 / 私信</td><td>作品 / 关注 / 粉丝</td><td>作品 / 数据 / 评论</td><td>—</td><td>—</td></tr>
       </tbody></table></div>
-      <p><strong>关键词作品监控</strong>与<strong>关键词批量采集</strong>是不同功能：前者持续检查一个搜索词，后者是一次性批处理。抖音和小红书均支持批量采集。</p>
+      <p><strong>关键词作品监控</strong>与<strong>关键词批量采集</strong>是不同功能：前者持续检查一个搜索词，后者是一次性批处理。抖音和小红书均支持批量采集。知乎当前监控的是作者公开回答和文章，不是知乎搜索词。</p>
       <figure><a href="images/overview-douyin.png"><img src="images/overview-douyin.png" alt="CreatorHub 工作概览，左侧为功能导航，顶部可切换平台" width="1600" loading="lazy"></a><figcaption>界面截图使用示例数据。点击图片可查看原图；实际入口会随平台变化。</figcaption></figure>
     </section>
 
@@ -114,7 +116,7 @@ cd creatorhub</code></pre><p>克隆方式便于以后更新；ZIP 方式不要�
 
     <section id="monitor">
       <h2>作品监控：持续发现更新</h2><p class="path">入口：作品监控 → 新建作品监控</p>
-      <p><strong>适用：</strong>抖音、小红书、快手。视频号请使用“我的内容”查看本账号作品。</p>
+      <p><strong>适用：</strong>抖音、小红书、快手和知乎。视频号请使用“我的内容”查看本账号作品。</p>
       <ol><li>复制创作者主页的完整分享文案或链接。小红书选择“创作者笔记”或“关键词”监控类型，并填写对应目标；链接尽量保留有效的 <code>xsec_token</code>。</li><li>粘贴目标，按需要使用“识别”，检查识别结果，再选择使用账号。</li><li>设置检查频率。第一次可先用“每 30 分钟”或“每小时”，而不是同时添加大量高频目标。</li><li>选择“自动下载范围”：只想观察结果时选“仅记录，不下载”；确实需要媒体时选择对应类型。</li><li>如当前平台提供“首次历史回填”，先选最近 5 条或不下载历史。分组、标签、下载目录和高级筛选可以稍后配置。</li><li>保存后在“监控目标”查看状态，在“作品记录”查看发现的内容。</li></ol>
       <div class="note"><strong>为什么新建后没有旧作品？</strong>默认主要监控订阅后的新内容。历史回填与持续监控是两件事；没有新内容、尚未到检查时间、筛选过严，都可能导致暂时没有记录。</div>
       <p><strong>完成标志：</strong>目标出现在列表；执行后有检查状态，有符合条件的内容时出现在作品记录中。无需继续监控时，暂停目标，不要只关网页。</p>

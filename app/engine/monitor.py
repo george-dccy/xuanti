@@ -27,6 +27,8 @@ from ..browser import (BrowserManager, fetch_videos, fetch_comments,
                        post_ks_comment,
                        fetch_channels_works, fetch_channels_comments,
                        fetch_channels_self_profile, post_channels_comment,
+                       fetch_zhihu_works,
+                       fetch_taobao_products,
                        fetch_account_works, fetch_douyin_account_works_api,
                        do_follow, send_dm, send_dm_api)
 from . import compose
@@ -50,6 +52,8 @@ from ..platforms.kuaishou import (parse_ks_feed, parse_ks_comment,
 from ..platforms.channels import (parse_channels_feed, parse_channels_comment,
                    flatten_channels_comments, parse_self_user as parse_channels_self_user,
                    publish_channels)
+from ..platforms.zhihu import ZhihuWork
+from ..platforms.taobao import TaobaoProduct
 from ..models import (ContentRecord, CommentRecord, CommentRule, CommentTask,
                       CommentWatch, DanmakuWatch, DanmakuRecord,
                        DouyinAccount, MonitorTarget, AccountRiskState,
@@ -127,6 +131,7 @@ def _monitor_strategy(target: MonitorTarget, *, default_scrolls: int,
         "media_type": str(getattr(target, "record_media_filter", "all") or "all"),
         "min_likes": max(0, int(getattr(target, "min_like_count", 0) or 0)),
         "min_comments": max(0, int(getattr(target, "min_comment_count", 0) or 0)),
+        "min_sales": max(0, int(getattr(target, "min_sales_count", 0) or 0)),
         "recent_days": max(0, int(getattr(target, "recent_days", 0) or 0)),
         "includes": _monitor_terms(getattr(target, "include_keywords", "[]") or "[]"),
         "excludes": _monitor_terms(getattr(target, "exclude_keywords", "[]") or "[]"),
@@ -142,6 +147,9 @@ def _monitor_content_matches(aw: Aweme, strategy: dict,
     if int(aw.like_count or 0) < int(strategy.get("min_likes") or 0):
         return False
     if int(aw.comment_count or 0) < int(strategy.get("min_comments") or 0):
+        return False
+    if getattr(aw, "platform", "") == "taobao" and int(
+            getattr(aw, "sales_count", 0) or 0) < int(strategy.get("min_sales") or 0):
         return False
     recent_days = int(strategy.get("recent_days") or 0)
     if recent_days and aw.create_time:
@@ -210,6 +218,43 @@ def _select_douyin_awemes(items: list, quality: str, first_scan: bool,
     historical = [aw for aw in parsed
                   if aw.create_time and aw.create_time < monitor_since]
     return current + historical[:max(0, initial_backfill_count)]
+
+
+def _select_zhihu_works(items: list[ZhihuWork], first_scan: bool,
+                         monitor_since: int,
+                         initial_backfill_count: int) -> list[ZhihuWork]:
+    """按订阅时间选择知乎回答/文章，并保持最新内容优先。"""
+    parsed = []
+    seen: set[str] = set()
+    for item in items or []:
+        if not isinstance(item, ZhihuWork) or item.aweme_id in seen:
+            continue
+        seen.add(item.aweme_id)
+        parsed.append(item)
+    parsed.sort(key=lambda item: (item.create_time, item.aweme_id), reverse=True)
+    if not first_scan:
+        return [item for item in parsed
+                if not item.create_time or item.create_time >= monitor_since]
+    if initial_backfill_count < 0:
+        return parsed
+    current = [item for item in parsed
+               if item.create_time and item.create_time >= monitor_since]
+    historical = [item for item in parsed
+                  if item.create_time and item.create_time < monitor_since]
+    return current + historical[:max(0, initial_backfill_count)]
+
+
+def _select_taobao_products(items: list[TaobaoProduct]) -> list[TaobaoProduct]:
+    """保持淘宝热销排序并按商品 ID 去重。"""
+    result = []
+    seen: set[str] = set()
+    for item in items or []:
+        if not isinstance(item, TaobaoProduct) or item.aweme_id in seen:
+            continue
+        seen.add(item.aweme_id)
+        result.append(item)
+    return sorted(result, key=lambda item: (
+        item.sales_count, item.price, item.aweme_id), reverse=True)
 
 
 def _douyin_scan_since(monitor_since: int, known_create_times: list[int]) -> int:
@@ -1142,6 +1187,11 @@ class MonitorEngine:
         if not decision.allowed:
             return {"ok": False, "deferred": True, "reason": decision.reason,
                     "next_allowed_at": decision.next_allowed_at}
+        if platform in {"zhihu", "taobao"}:
+            # 这些读取型 Cookie 账号没有 CreatorHub 的“自己的主页”探测接口；
+            # 有效性会在目标读取时由对应平台响应判定，避免误用抖音资料接口。
+            return {"ok": False, "indeterminate": True,
+                    "error": "知乎账号健康状态随作者监控读取判定"}
         with get_session() as session:
             before = session.get(AccountRiskState, aid)
             was_recovering = bool(before and before.risk_level > 0)
@@ -1344,6 +1394,8 @@ class MonitorEngine:
                     for a in s.exec(select(DouyinAccount)).all()
                     if a.status != "invalid" and (a.storage_state or a.creator_storage_state)]
         for aid, platform, uid, identity in accs:
+            if platform in {"zhihu", "taobao"}:
+                continue
             decision = self.risk.preflight(aid, OperationKind.READ_HEAVY)
             if not decision.allowed:
                 continue
@@ -1543,6 +1595,10 @@ class MonitorEngine:
             return await self._scan_xhs_target_locked(target_id)
         if platform == "kuaishou":
             return await self._scan_ks_target_locked(target_id)
+        if platform == "zhihu":
+            return await self._scan_zhihu_target_locked(target_id)
+        if platform == "taobao":
+            return await self._scan_taobao_target_locked(target_id)
         with get_session() as s:
             target = s.get(MonitorTarget, target_id)
             if not target:
@@ -1728,6 +1784,165 @@ class MonitorEngine:
                                if should_download))
         return {"ok": not error, "new": len(new_records), "error": error,
                 "scanned": len(seen), "filtered": filtered_count}
+
+    # ── 知乎:作者回答 / 文章监控(登录态浏览器调用公开 v4 列表接口)──
+    async def _scan_zhihu_target_locked(self, target_id: int) -> dict:
+        with get_session() as s:
+            target = s.get(MonitorTarget, target_id)
+            if not target:
+                return {"ok": False, "error": "target not found"}
+            first_scan = target.last_scan_at is None
+            if not target.account_id:
+                return self._mark_target_skip(
+                    target_id, "知乎监控必须绑定已登录知乎账号，请先粘贴 Cookie")
+            acc = s.get(DouyinAccount, target.account_id)
+            if (not acc or acc.platform != "zhihu" or acc.status != "active"
+                    or not acc.storage_state):
+                return self._mark_target_skip(
+                    target_id, "绑定的知乎账号不存在、登录态已失效或未保存 Cookie")
+            if self._proxy_bad(acc):
+                return self._mark_target_skip(
+                    target_id, "账号代理标记为不可用(proxy bad),已跳过以免暴露真实 IP")
+            identity, _proxy = self._identity_proxy(acc)
+            known = set(s.exec(
+                select(ContentRecord.aweme_id)
+                .where(ContentRecord.target_id == target_id)).all())
+            user_token = target.sec_uid
+            strategy = _monitor_strategy(
+                target, default_scrolls=3, default_items=20)
+            backfill_count = target.initial_backfill_count
+            monitor_since = int(target.created_at.timestamp())
+
+        items, author, error = await fetch_zhihu_works(
+            self.browser, identity, user_token, known,
+            max_pages=strategy["max_scrolls"],
+            block_media=self.cfg.engine.block_media_resources)
+        selected = _select_zhihu_works(
+            items, first_scan, monitor_since, backfill_count)
+        new_records = []
+        filtered_count = 0
+        for work in selected:
+            if not _monitor_content_matches(work, strategy):
+                filtered_count += 1
+                continue
+            if strategy["max_items"] and len(new_records) >= strategy["max_items"]:
+                break
+            # 知乎监控只保存文本作品元数据，不进入视频/图集下载队列。
+            rec = ContentRecord(
+                platform="zhihu", target_id=target_id, aweme_id=work.aweme_id,
+                desc=work.desc, media_type="text", create_time=work.create_time,
+                like_count=work.like_count, comment_count=work.comment_count,
+                media_json=json.dumps({"kind": work.kind,
+                                       "source_url": work.source_url},
+                                      ensure_ascii=False),
+                source_url=work.source_url, download_status="skipped",
+            )
+            new_records.append((rec, work))
+
+        target_name = ""
+        with get_session() as s:
+            for rec, _ in new_records:
+                s.add(rec)
+            t = s.get(MonitorTarget, target_id)
+            if t:
+                t.last_scan_at = datetime.utcnow()
+                t.last_error = error
+                if author:
+                    if not t.nickname:
+                        t.nickname = author.get("nickname", "") or t.nickname
+                    if not t.avatar:
+                        t.avatar = author.get("avatar", "") or t.avatar
+                s.add(t)
+                target_name = t.nickname or t.sec_uid[:24]
+            s.commit()
+            for rec, _ in new_records:
+                s.refresh(rec)
+
+        if new_records and not first_scan:
+            await self._notify_new(target_name, [work for _, work in new_records])
+        return {"ok": not error, "new": len(new_records), "error": error,
+                "scanned": len(selected), "filtered": filtered_count}
+
+    # ── 淘宝:关键词热销商品监控(登录态浏览器读取搜索卡片)──
+    async def _scan_taobao_target_locked(self, target_id: int) -> dict:
+        with get_session() as s:
+            target = s.get(MonitorTarget, target_id)
+            if not target:
+                return {"ok": False, "error": "target not found"}
+            if target.target_kind != "keyword" or not target.keyword:
+                return self._mark_target_skip(target_id, "淘宝监控目标必须是搜索关键词")
+            first_scan = target.last_scan_at is None
+            if not target.account_id:
+                return self._mark_target_skip(
+                    target_id, "淘宝监控必须绑定已登录淘宝账号，请先粘贴 Cookie")
+            acc = s.get(DouyinAccount, target.account_id)
+            if (not acc or acc.platform != "taobao" or acc.status != "active"
+                    or not acc.storage_state):
+                return self._mark_target_skip(
+                    target_id, "绑定的淘宝账号不存在、登录态已失效或未保存 Cookie")
+            if self._proxy_bad(acc):
+                return self._mark_target_skip(
+                    target_id, "账号代理标记为不可用(proxy bad),已跳过以免暴露真实 IP")
+            identity, proxy = self._identity_proxy(acc)
+            known = set(s.exec(
+                select(ContentRecord.aweme_id)
+                .where(ContentRecord.target_id == target_id)).all())
+            base_dir = target.download_dir or get_setting(
+                "download_dir", self.cfg.engine.media_dir)
+            strategy = _monitor_strategy(
+                target, default_scrolls=3, default_items=20)
+            auto_download = target.download_enabled
+
+        items, error = await fetch_taobao_products(
+            self.browser, identity, target.keyword, known,
+            max_pages=strategy["max_scrolls"], block_media=False)
+        selected = _select_taobao_products(items)
+        new_records = []
+        filtered_count = 0
+        for product in selected:
+            if not _monitor_content_matches(product, strategy):
+                filtered_count += 1
+                continue
+            if strategy["max_items"] and len(new_records) >= strategy["max_items"]:
+                break
+            should_download = bool(auto_download and product.medias)
+            media_json = json.dumps([{
+                "url": media.url, "kind": media.kind, "ext": media.ext,
+                "index": media.index,
+            } for media in product.medias], ensure_ascii=False)
+            rec = ContentRecord(
+                platform="taobao", target_id=target_id, aweme_id=product.aweme_id,
+                desc=product.desc, media_type="images", cover_url=product.cover,
+                like_count=0, comment_count=0, sales_count=product.sales_count,
+                price=product.price, shop_name=product.shop_name,
+                media_json=media_json,
+                source_url=product.source_url,
+                download_status="pending" if should_download else "skipped",
+            )
+            new_records.append((rec, product, should_download))
+
+        target_name = f"#{target.keyword}"
+        with get_session() as s:
+            for rec, _, _ in new_records:
+                s.add(rec)
+            t = s.get(MonitorTarget, target_id)
+            if t:
+                t.last_scan_at = datetime.utcnow()
+                t.last_error = error
+                t.nickname = t.nickname or f"#{t.keyword}"
+                s.add(t)
+                target_name = t.nickname
+            s.commit()
+            for rec, _, _ in new_records:
+                s.refresh(rec)
+
+        if new_records and not first_scan:
+            await self._notify_new(target_name, [product for _, product, _ in new_records])
+        await asyncio.gather(*(self._download(rec.id, product, base_dir, proxy)
+                               for rec, product, should_download in new_records
+                               if should_download))
+        return {"ok": not error, "new": len(new_records), "error": error,
+                "scanned": len(selected), "filtered": filtered_count}
 
     def _mark_target_skip(self, target_id: int, msg: str) -> dict:
         """把跳过原因写到目标 last_error,并推进 last_scan_at(避免下轮立刻重试)。"""
@@ -4846,7 +5061,10 @@ class MonitorEngine:
         title = f"作品监控 · {target_name} 新增 {len(awemes)} 个作品"
         lines = []
         for aw in awemes[:6]:
-            tag = "图集" if aw.media_type == "images" else "视频"
+            tag = ("商品" if getattr(aw, "platform", "") == "taobao"
+                   else "回答" if getattr(aw, "kind", "") == "answer"
+                   else "文章" if getattr(aw, "kind", "") == "article"
+                   else "图集" if aw.media_type == "images" else "视频")
             lines.append(f"· [{tag}] {(aw.desc or aw.aweme_id)[:30]}")
         if len(awemes) > 6:
             lines.append(f"… 等共 {len(awemes)} 个")
@@ -4889,6 +5107,8 @@ class MonitorEngine:
             rec = s.get(ContentRecord, record_id)
             if not rec:
                 return {"ok": False, "error": "记录不存在"}
+            if rec.platform == "zhihu":
+                return {"ok": False, "error": "知乎监控只记录回答和文章，不提供媒体下载"}
             t = s.get(MonitorTarget, rec.target_id)
             base_dir = (t.download_dir if t else "") or get_setting(
                 "download_dir", self.cfg.engine.media_dir)

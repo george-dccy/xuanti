@@ -1041,7 +1041,7 @@ async function exportModuleReport(module, full = false, explicitBtn = null) {
 }
 
 let PLATFORM = "douyin";
-const PF_NAME = { douyin: "抖音", xhs: "小红书", kuaishou: "快手", shipinhao: "视频号" };
+const PF_NAME = { douyin: "抖音", xhs: "小红书", kuaishou: "快手", shipinhao: "视频号", zhihu: "知乎", taobao: "淘宝" };
 let CURRENT_TAB = "overview";
 const PAGE_META = {
   overview: {
@@ -1101,7 +1101,7 @@ function pfHasPublish(pf) { return pf === "xhs" || pf === "kuaishou" || pf === "
 // 视频号只有「本账号」数据(助手接口本账号),不支持监控他人作品/评论
 function pfIsChannels(pf) { return pf === "shipinhao"; }
 function switchPlatform(pf) {
-  if (!["douyin", "xhs", "kuaishou", "shipinhao"].includes(pf)) pf = "douyin";
+  if (!["douyin", "xhs", "kuaishou", "shipinhao", "zhihu", "taobao"].includes(pf)) pf = "douyin";
   globalThis.CreatorHubWorkbench?.platformChanging?.(pf);
   PLATFORM = pf;
   VIEW_REQUESTS.clear();
@@ -1139,10 +1139,13 @@ function switchPlatform(pf) {
   if (CURRENT_TAB === "overview") loop();
 }
 function applyPlatformUI() {
+  const ks = PLATFORM === "kuaishou", dy = PLATFORM === "douyin", sph = PLATFORM === "shipinhao", zh = PLATFORM === "zhihu", tb = PLATFORM === "taobao";
   document.body.classList.toggle("pf-douyin", PLATFORM === "douyin");
   document.body.classList.toggle("pf-xhs", PLATFORM === "xhs");
   document.body.classList.toggle("pf-kuaishou", PLATFORM === "kuaishou");
   document.body.classList.toggle("pf-shipinhao", PLATFORM === "shipinhao");
+  document.body.classList.toggle("pf-zhihu", PLATFORM === "zhihu");
+  document.body.classList.toggle("pf-taobao", PLATFORM === "taobao");
   // 视频号:只有本账号数据,隐藏「监控他人作品/评论」相关入口(.notsh-only)
   document.body.classList.toggle("pf-channels", pfIsChannels(PLATFORM));
   if (PLATFORM !== "douyin" && CURRENT_TAB === "danmaku") switchTab("overview");
@@ -1156,6 +1159,9 @@ function applyPlatformUI() {
   document.querySelectorAll(".xhs-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "xhs"));
   document.querySelectorAll(".ks-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "kuaishou"));
   document.querySelectorAll(".sh-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "shipinhao"));
+  document.querySelectorAll(".zhihu-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "zhihu"));
+  document.querySelectorAll(".taobao-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "taobao"));
+  document.querySelectorAll(".notzhihu-only").forEach(e => e.classList.toggle("hidden", zh || tb));
   document.querySelectorAll(".notsh-only").forEach(e => e.classList.toggle("hidden", pfIsChannels(PLATFORM)));
   document.querySelectorAll(".collect-only").forEach(e => e.classList.toggle(
     "hidden", !["douyin", "xhs"].includes(PLATFORM)));
@@ -1165,7 +1171,6 @@ function applyPlatformUI() {
   // 发布面板入口:抖音 / 小红书 / 快手均显示
   document.querySelectorAll(".pub-only").forEach(e => e.classList.toggle("hidden", !pfHasPublish(PLATFORM)));
   // 发布面板文案随平台切换
-  const ks = PLATFORM === "kuaishou", dy = PLATFORM === "douyin", sph = PLATFORM === "shipinhao";
   const pubSub = $("pub-head-sub");
   if (pubSub) pubSub.textContent = dy ? "上传图集 / 视频到抖音创作平台(实验性)"
     : ks ? "上传图集 / 视频到快手创作平台(实验性)"
@@ -1205,23 +1210,52 @@ function applyPlatformUI() {
     : "直接粘贴整段抖音分享文案，将自动提取视频或主页链接";
   resetWatchTargetState();
   const ckl = $("ck-label");
-  if (ckl) ckl.textContent = PLATFORM === "xhs"
+  if (ckl) ckl.textContent = tb ? "完整 Cookie(淘宝登录会话)" : zh ? "完整 Cookie(含 z_c0 / d_c0 等知乎会话)" : PLATFORM === "xhs"
     ? "完整 Cookie(含 a1;发布需创作者会话)"
     : PLATFORM === "kuaishou" ? "完整 Cookie(含 userId 与 web_st)" : "完整 Cookie(含 sessionid)";
-  if ($("ck-val")) $("ck-val").placeholder = PLATFORM === "xhs"
+  if ($("ck-val")) $("ck-val").placeholder = tb ? "从 www.taobao.com 登录后复制完整 Cookie" : zh ? "从 www.zhihu.com 登录后复制完整 Cookie"
+    : PLATFORM === "xhs"
     ? "从 creator.xiaohongshu.com 登录后复制完整 Cookie"
     : PLATFORM === "kuaishou" ? "从 www.kuaishou.com 登录后复制完整 Cookie"
     : "从浏览器开发者工具复制完整 Cookie";
   applyMonitorForm();
   applyCollectionForm();
   if (PLATFORM === "douyin") applyDanmakuForm();
-  if ($("t-kind") && PLATFORM !== "xhs") $("t-kind").value = "creator";
+  if ($("t-kind")) $("t-kind").value = tb ? "keyword" : PLATFORM === "xhs" ? $("t-kind").value : "creator";
   // 视频号只有本账号数据,不支持「监控他人」:若正停在这些面板,自动切到「账号管理」
   if (pfIsChannels(PLATFORM)) {
     const cur = (document.querySelector('.navitem.active') || {}).dataset;
     if (cur && ["monitors", "comments", "autocomment"].includes(cur.tab)) switchTab("hub");
     // 视频号本账号只有「我的作品 / 数据」;若停在关注/粉丝/私信子页,切回我的作品
     if (["following", "fans", "dm"].includes(HUB_TAB)) switchHubTab("myworks");
+  }
+  const zhihuUnsupported = document.querySelectorAll(
+    '[data-tab="comments"],[data-tab="autocomment"],[data-section="inbox"],' +
+    '[data-hubtab="following"],[data-hubtab="fans"],[data-hubtab="dm"]');
+  zhihuUnsupported.forEach(e => e.classList.toggle("hidden", zh || tb));
+  if ((zh || tb) && ["comments", "autocomment", "hub"].includes(CURRENT_TAB)) switchTab("overview");
+  if ($("t-download")) {
+    if (zh) $("t-download").value = "none";
+    $("t-download").disabled = zh;
+  }
+  if ($("t-download-wrap")) $("t-download-wrap").hidden = zh;
+  if ($("t-record-media-wrap")) $("t-record-media-wrap").hidden = zh || tb;
+  if ($("t-download")) {
+    if (tb) {
+      $("t-download").value = "all";
+      $("t-download-wrap").hidden = false;
+      $("t-download-wrap").querySelector("label").textContent = "自动下载主图";
+    } else if (!zh) {
+      $("t-download-wrap").querySelector("label").textContent = "自动下载范围";
+    }
+  }
+  if ($("t-url-label")) $("t-url-label").textContent = tb ? "淘宝搜索关键词" : zh ? "知乎用户主页 / url_token" : "创作者主页 / 完整分享文案 / sec_uid";
+  if ($("t-url")) $("t-url").placeholder = tb ? "例如：女装连衣裙、通勤衬衫、针织开衫" : zh ? "例如：知乎用户主页或 url_token" : "直接粘贴整段主页分享文案，将自动提取有效链接";
+  if ($("t-min-likes-label")) $("t-min-likes-label").textContent = tb ? "最低月销量" : "最低点赞数";
+  if ($("t-min-likes") && tb) $("t-min-likes").placeholder = "最低月销量";
+  if ($("t-min-comments-wrap")) $("t-min-comments-wrap").hidden = tb;
+  if ($("content-sort") && tb && $("content-sort").value === "captured_desc") {
+    $("content-sort").value = "sales_desc"; $("content-sort")._csSync?.();
   }
   if (!["douyin", "xhs"].includes(PLATFORM) && CURRENT_TAB === "collections") switchTab("overview");
   // 不支持发布的平台:若正停在该面板则回到总览(当前四平台均支持,兜底保留)
@@ -1315,14 +1349,16 @@ async function normalizePlatformShareTarget({
 }
 
 function resetMonitorTargetState() {
-  const keywordMode = PLATFORM === "xhs" && $("t-kind") && $("t-kind").value === "keyword";
+  const keywordMode = ["xhs", "taobao"].includes(PLATFORM)
+    && $("t-kind") && $("t-kind").value === "keyword";
   resetSmartTargetState("t-url", "t-url-feedback", keywordMode
     ? "输入要持续监控的搜索关键词"
     : "支持完整分享文案、主页长链、平台短链或用户 ID");
 }
 
 async function normalizeMonitorTarget(button = null, { quiet = false } = {}) {
-  const keywordMode = PLATFORM === "xhs" && $("t-kind") && $("t-kind").value === "keyword";
+  const keywordMode = ["xhs", "taobao"].includes(PLATFORM)
+    && $("t-kind") && $("t-kind").value === "keyword";
   if (keywordMode) return $("t-url").value.trim();
   return normalizePlatformShareTarget({
     inputId: "t-url", feedbackId: "t-url-feedback", platform: PLATFORM, button, quiet,
@@ -1391,6 +1427,22 @@ function applyMonitorForm() {
   const title = $("mon-add-title");
   const lbl = $("t-url-label");
   const parseButton = document.querySelector('[data-panel="monitors"] .smart-target-action');
+  if (PLATFORM === "taobao") {
+    if (title) title.innerHTML = '添加淘宝热销监控 <span class="sub">按销量优先发现商品并下载主图</span>';
+    if (lbl) lbl.textContent = "淘宝搜索关键词";
+    $("t-url").placeholder = "例如：女装连衣裙 / 通勤衬衫 / 针织开衫";
+    if (parseButton) parseButton.classList.add("hidden");
+    resetMonitorTargetState();
+    return;
+  }
+  if (PLATFORM === "zhihu") {
+    if (title) title.innerHTML = '添加知乎作者监控 <span class="sub">持续记录公开回答和文章</span>';
+    if (lbl) lbl.textContent = "知乎用户主页 / url_token";
+    $("t-url").placeholder = "例如：知乎用户主页或 url_token";
+    if (parseButton) parseButton.classList.add("hidden");
+    resetMonitorTargetState();
+    return;
+  }
   if (PLATFORM === "douyin" || PLATFORM === "kuaishou") {
     const isKs = PLATFORM === "kuaishou";
     if (title) title.innerHTML = (isKs ? '添加创作者监控' : '添加作品监控')
@@ -2376,8 +2428,10 @@ async function refreshAccounts() {
     const isXhs = a.platform === "xhs";
     const isKs = a.platform === "kuaishou";
     const isChannels = a.platform === "shipinhao";
-    const idName = isXhs ? "小红书号 " : isKs ? "快手号 " : isChannels ? "视频号 " : "抖音号 ";
-    const secName = isChannels ? "finder_id " : isKs ? "主页ID " : isXhs ? "user_id " : "sec_uid ";
+    const isZhihu = a.platform === "zhihu";
+    const isTaobao = a.platform === "taobao";
+    const idName = isTaobao ? "淘宝账号 " : isZhihu ? "知乎用户 " : isXhs ? "小红书号 " : isKs ? "快手号 " : isChannels ? "视频号 " : "抖音号 ";
+    const secName = isTaobao ? "Cookie " : isZhihu ? "url_token " : isChannels ? "finder_id " : isKs ? "主页ID " : isXhs ? "user_id " : "sec_uid ";
     const rawSecUid = String(a.sec_uid || "");
     const shortSecUid = rawSecUid.length > 18 ? rawSecUid.slice(0, 18) + "…" : rawSecUid;
     const idline = [
@@ -2394,12 +2448,12 @@ async function refreshAccounts() {
       String(a.gender || "").toUpperCase()
     ] || String(a.gender || "");
     const detail = [
-      isKs || a.aweme_count ? fmtNum(a.aweme_count || 0) + (isXhs ? " 笔记" : " 作品") : null,
+      isKs || isZhihu || a.aweme_count ? fmtNum(a.aweme_count || 0) + (isZhihu ? " 回答/文章" : isXhs ? " 笔记" : " 作品") : null,
       isKs ? fmtNum(a.following_count || 0) + " 关注" : null,
       isKs || a.follower_count ? fmtNum(a.follower_count || 0) + " 粉丝" : null,
       isKs ? fmtNum(a.total_favorited || 0) + " 获赞" : null,
       isKs && ksGender ? "性别 " + ksGender : null,
-      isXhs ? "扫码登录" : (a.login_type === "cookie" ? "Cookie 登录" : "扫码登录"),
+      isXhs ? "扫码登录" : (a.login_type === "cookie" ? "Cookie 登录" : (isZhihu || isTaobao) ? "Cookie 登录" : "扫码登录"),
       ...loginDetails,
       `被 ${a.monitor_count} 个监控使用`,
       `任务 ${Number(task.pending || 0)} 待执行 / ${Number(task.running || 0)} 执行中 / ${Number(task.blocked || 0)} 受阻 / ${Number(task.failed || 0)} 失败`,
@@ -2410,7 +2464,7 @@ async function refreshAccounts() {
       ? (a.has_creator
           ? `<span class="pill active has-ic ic-text" title="已完成创作者登录,可发布">${ic("i-film")}创作者号</span>`
           : `<span class="pill bare has-ic ic-text" title="仅监控/读取,未授权创作平台,不能发布">${ic("i-eye")}读取号</span>`)
-      : `<span class="pill ${a.has_creator ? "active" : "bare"} has-ic ic-text" title="${a.has_creator ? "创作者登录,可用于创作中心评论模式,也可抓取" : "普通抓取账号"}">${a.has_creator ? ic("i-film") + "创作者号" : ic("i-card") + "抓取号"}</span>`;
+      : `<span class="pill ${a.has_creator ? "active" : "bare"} has-ic ic-text" title="${isTaobao ? "淘宝 Cookie 读取账号" : isZhihu ? "知乎 Cookie 读取账号" : a.has_creator ? "创作者登录,可用于创作中心评论模式,也可抓取" : "普通抓取账号"}">${isTaobao || isZhihu ? ic("i-eye") + "读取号" : a.has_creator ? ic("i-film") + "创作者号" : ic("i-card") + "抓取号"}</span>`;
     // 代理(风控隔离):有代理显示脱敏地址 + 状态;无代理高亮提醒(多账号同 IP 有关联风险)
     const pxText = { ok: "代理正常", bad: "代理不可用", unknown: "代理未测" };
     const pxCls = a.proxy_status === "ok" ? "active" : a.proxy_status === "bad" ? "invalid" : "bare";
@@ -2432,7 +2486,9 @@ async function refreshAccounts() {
     const checkLine = environmentCheck && environmentCheck.enabled
       ? `<div class="mut" style="font-size:11px;margin-top:2px">环境体检 <span class="pill ${environmentCheck.required ? "pending" : "active"}">${environmentCheck.required ? "待打开" : "已提示"}</span>${environmentCheck.last_opened_at ? ` · ${new Date(environmentCheck.last_opened_at).toLocaleString()}` : " · 新环境首次启动自动打开"}</div>`
       : "";
-    const reloginButton = isXhs && !a.has_read_login
+    const reloginButton = (isZhihu || isTaobao)
+      ? `<button class="ghost sm" onclick="toggleCookie()">重新粘贴 Cookie</button>`
+      : isXhs && !a.has_read_login
       ? `<button class="sm warning-action" onclick="relogin(${a.id},'read')">补读取登录</button>`
       : (a.status === "invalid"
           ? `<button class="sm warning-action" onclick="relogin(${a.id})">重新登录</button>`
@@ -2456,14 +2512,14 @@ async function refreshAccounts() {
       </td>
       <td><span class="pill ${a.status}">${accountStatusLabel}</span>${work.browser_open ? '<div class="mut" style="margin-top:6px"><span class="pill downloading">浏览器已打开</span></div>' : ""}${Number(task.total || 0) ? `<div class="mut" style="margin-top:6px">${Number(task.running || 0)} 执行中 · ${Number(task.blocked || 0)} 受阻 · ${Number(task.failed || 0)} 失败</div>` : ""}${work.unread_dm ? `<div class="mut" style="margin-top:4px">${Number(work.unread_dm)} 条未读私信</div>` : ""}</td>
       <td class="acttd wb-account-actions">
-        <button class="ghost sm" onclick="openAccountHub(${a.id})" title="查看该账号的作品 / 关注 / 粉丝 / 私信">我的内容</button>
+        ${isZhihu || isTaobao ? "" : `<button class="ghost sm" onclick="openAccountHub(${a.id})" title="查看该账号的作品 / 关注 / 粉丝 / 私信">我的内容</button>`}
         ${a.status === "invalid" ? reloginButton : `<button class="ghost sm" onclick="openAccountBrowser(${a.id})">打开浏览器</button>`}
         <span data-account-menu></span>
         <div data-account-actions>
         ${reloginButton}
         ${creatorLoginButton}
         <button class="ghost sm" onclick="refreshProfile(${a.id})">刷新资料</button>
-        <button class="ghost sm" onclick="openAccountHub(${a.id})" title="查看该账号的作品 / 关注 / 粉丝 / 私信">数据</button>
+        ${isZhihu || isTaobao ? "" : `<button class="ghost sm" onclick="openAccountHub(${a.id})" title="查看该账号的作品 / 关注 / 粉丝 / 私信">数据</button>`}
         <button class="ghost sm" onclick="openAccountBrowser(${a.id})" title="用该账号登录态弹出真实浏览器窗口,手动收发私信 / 维护 / 抓接口(关窗即保存)">打开浏览器</button>
         <button class="ghost sm" onclick="setBrowserBackend(${a.id})" title="选择本地 Chrome/Patchright 或开源 Fingerprint Chromium 内核">环境</button>
         <button class="ghost sm" onclick="manageFingerprint(${a.id})" title="根据账号当前出口 IP 生成稳定指纹、时区、语言和地理位置">指纹</button>
@@ -3613,8 +3669,8 @@ function accOptions(list, ph) {
 }
 function populateAccountSelect() {
   const sel = $("t-acc"); if (!sel) return;
-  const required = PLATFORM === "xhs" || PLATFORM === "douyin";
-  const platformName = PLATFORM === "xhs" ? "小红书" : "抖音";
+  const required = ["xhs", "douyin", "zhihu", "taobao"].includes(PLATFORM);
+  const platformName = PF_NAME[PLATFORM] || "平台";
   sel.innerHTML = accOptions(ACCOUNTS, required ? `请选择${platformName}账号(必选)` : "不指定账号");
   // 抖音匿名主页可能返回风控后的旧快照；作品监控与小红书一样必须使用登录态。
   if (required && ACCOUNTS.length) sel.value = String(ACCOUNTS[0].id);
@@ -3690,7 +3746,9 @@ async function refreshProfile(id) {
         return;
       }
       const refreshedPlatform = r.platform || PLATFORM;
-      const idLbl = refreshedPlatform === "xhs" ? " · 小红书号 "
+      const idLbl = refreshedPlatform === "taobao" ? " · 淘宝账号 "
+        : refreshedPlatform === "zhihu" ? " · url_token "
+        : refreshedPlatform === "xhs" ? " · 小红书号 "
         : refreshedPlatform === "kuaishou" ? " · 快手号 "
         : refreshedPlatform === "shipinhao" ? " · 视频号 " : " · 抖音号 ";
       toast("\u8d44\u6599\u5df2\u66f4\u65b0\uff0c\u767b\u5f55\u72b6\u6001\u5df2\u6062\u590d:" + (r.nickname || "") + (r.douyin_id ? idLbl + r.douyin_id : ""), "ok");
@@ -5776,15 +5834,15 @@ async function addMonitor() {
   const btn = evtBtn() || document.querySelector('button[onclick="addMonitor()"]');
   if (btn?.disabled) return;
   await withBusy(btn, "识别中", async () => {
-  const target_kind = (PLATFORM === "xhs" && $("t-kind")) ? $("t-kind").value : "creator";
+  const target_kind = (["xhs", "taobao"].includes(PLATFORM) && $("t-kind")) ? $("t-kind").value : "creator";
   const normalizedTarget = target_kind === "keyword"
     ? $("t-url").value.trim()
     : await normalizeMonitorTarget(null, { quiet: true });
   if (normalizedTarget === null) return;
   const url_or_secuid = $("t-url").value.trim();
   if (!url_or_secuid) { toast(target_kind === "keyword" ? "请输入搜索关键词" : "请输入主页链接 / 短链 / id", "err"); return; }
-  if ((PLATFORM === "xhs" || PLATFORM === "douyin") && !$("t-acc").value) {
-    const platformName = PLATFORM === "xhs" ? "小红书" : "抖音";
+  if (["xhs", "douyin", "zhihu", "taobao"].includes(PLATFORM) && !$("t-acc").value) {
+    const platformName = PF_NAME[PLATFORM] || "平台";
     if (!ACCOUNTS.length) { toast(`请先在「账号」里完成${platformName}扫码登录`, "err"); switchTab("accounts"); return; }
     toast(`${platformName}监控必须选择一个已登录账号`, "err"); return;
   }
@@ -5801,15 +5859,16 @@ async function addMonitor() {
           initial_backfill_count: PLATFORM === "douyin"
             ? ($("t-backfill").value === "" ? null : +$("t-backfill").value) : 0,
           download_dir: $("t-dir").value.trim(),
-          video_quality: PLATFORM === "xhs" ? "" : $("t-quality").value,
-          download_enabled: downloadMode !== "none",
-          media_filter: downloadMode === "none" ? "all" : downloadMode,
+          video_quality: ["xhs", "zhihu", "taobao"].includes(PLATFORM) ? "" : $("t-quality").value,
+          download_enabled: PLATFORM === "zhihu" ? false : downloadMode !== "none",
+          media_filter: ["zhihu", "taobao"].includes(PLATFORM) || downloadMode === "none" ? "all" : downloadMode,
           max_scrolls: +$("t-max-scrolls").value,
           max_items_per_scan: +$("t-max-items").value,
           record_media_filter: $("t-record-media").value,
           recent_days: Math.max(0, +$("t-recent-days").value || 0),
-          min_like_count: Math.max(0, +$("t-min-likes").value || 0),
-          min_comment_count: Math.max(0, +$("t-min-comments").value || 0),
+          min_like_count: PLATFORM === "taobao" ? 0 : Math.max(0, +$("t-min-likes").value || 0),
+          min_comment_count: PLATFORM === "taobao" ? 0 : Math.max(0, +$("t-min-comments").value || 0),
+          min_sales_count: PLATFORM === "taobao" ? Math.max(0, +$("t-min-likes").value || 0) : 0,
           include_keywords: parseDanmakuKeywords($("t-include-keywords").value),
           exclude_keywords: parseDanmakuKeywords($("t-exclude-keywords").value),
           alias: $("t-alias").value.trim(), group_name: getMetaValue("t-group").trim(),
@@ -5935,15 +5994,16 @@ async function editMonitor(id) {
         interval_seconds: monitorIntervalSeconds("em-interval"),
         account_id: $("em-account").value ? +$("em-account").value : null,
         download_dir: $("em-dir").value.trim(),
-        video_quality: $("em-quality") ? $("em-quality").value : "",
-        download_enabled: downloadMode !== "none",
-        media_filter: downloadMode === "none" ? "all" : downloadMode,
+        video_quality: ["xhs", "zhihu", "taobao"].includes(item.platform) ? "" : $("em-quality") ? $("em-quality").value : "",
+        download_enabled: item.platform === "zhihu" ? false : downloadMode !== "none",
+        media_filter: ["zhihu", "taobao"].includes(item.platform) || downloadMode === "none" ? "all" : downloadMode,
         max_scrolls: +$("em-max-scrolls").value,
         max_items_per_scan: +$("em-max-items").value,
         record_media_filter: $("em-record-media").value,
         recent_days: Math.max(0, +$("em-recent-days").value || 0),
         min_like_count: Math.max(0, +$("em-min-likes").value || 0),
         min_comment_count: Math.max(0, +$("em-min-comments").value || 0),
+        min_sales_count: item.platform === "taobao" ? Math.max(0, +$("em-min-likes").value || 0) : 0,
         include_keywords: parseDanmakuKeywords($("em-include-keywords").value),
         exclude_keywords: parseDanmakuKeywords($("em-exclude-keywords").value),
       };
@@ -5988,7 +6048,7 @@ async function editMonitor(id) {
         <div class="row">
           <div><label class="field" for="em-download">自动下载范围</label>
             <select id="em-download"><option value="all">全部作品</option><option value="video">仅视频</option><option value="images">仅图集</option><option value="none">仅记录，不下载</option></select></div>
-          ${item.platform === "xhs" ? "" : `<div><label class="field" for="em-quality">视频画质</label>
+          ${["xhs", "zhihu", "taobao"].includes(item.platform) ? "" : `<div><label class="field" for="em-quality">视频画质</label>
             <select id="em-quality"><option value="">跟随全局默认</option><option value="highest">原画/最高</option><option value="1080">1080P</option><option value="720">720P</option><option value="540">540P</option><option value="lowest">最低省流</option></select></div>`}
         </div>
         <div><label class="field" for="em-dir">下载目录</label>
@@ -6003,9 +6063,11 @@ async function editMonitor(id) {
     $("em-download").value = item.download_enabled === false ? "none" : (item.media_filter || "all");
     $("em-max-scrolls").value = String(item.max_scrolls ?? 0);
     $("em-max-items").value = String(item.max_items_per_scan ?? 0);
-    $("em-record-media").value = item.record_media_filter || "all";
+    $("em-record-media").value = ["zhihu", "taobao"].includes(item.platform) ? "all" : (item.record_media_filter || "all");
+    const emSalesLabel = document.querySelector('label[for="em-min-likes"]');
+    if (emSalesLabel) emSalesLabel.textContent = item.platform === "taobao" ? "最低月销量" : "最低点赞数";
     $("em-recent-days").value = String(item.recent_days || 0);
-    $("em-min-likes").value = String(item.min_like_count || 0);
+    $("em-min-likes").value = String(item.platform === "taobao" ? (item.min_sales_count || 0) : (item.min_like_count || 0));
     $("em-min-comments").value = String(item.min_comment_count || 0);
     $("em-include-keywords").value = (item.include_keywords || []).join(", ");
     $("em-exclude-keywords").value = (item.exclude_keywords || []).join(", ");
@@ -6023,13 +6085,14 @@ async function editMonitor(id) {
   toast("作品监控配置已更新", "ok"); refreshMonitors(); refreshContents();
 }
 function monitorStrategySummary(t) {
-  const depth = t.max_scrolls || (t.platform === "xhs" ? 6 : 12);
-  const limit = t.max_items_per_scan || (t.platform === "xhs" ? 12 : 0);
+  const depth = t.max_scrolls || (t.platform === "xhs" ? 6 : ["zhihu", "taobao"].includes(t.platform) ? 3 : 12);
+  const limit = t.max_items_per_scan || (t.platform === "xhs" ? 12 : ["zhihu", "taobao"].includes(t.platform) ? 20 : 0);
   const filters = [];
   if (t.record_media_filter && t.record_media_filter !== "all") filters.push(t.record_media_filter === "video" ? "视频" : "图文");
   if (t.recent_days) filters.push(`${t.recent_days}天内`);
   if (t.min_like_count) filters.push(`赞≥${fmtNum(t.min_like_count)}`);
   if (t.min_comment_count) filters.push(`评≥${fmtNum(t.min_comment_count)}`);
+  if (t.min_sales_count) filters.push(`月销≥${fmtNum(t.min_sales_count)}`);
   if ((t.include_keywords || []).length) filters.push(`含 ${t.include_keywords.join("/")}`);
   if ((t.exclude_keywords || []).length) filters.push(`排除 ${t.exclude_keywords.join("/")}`);
   const filterLabel = filters.length ? filters.join(" · ") : "无入库筛选";
@@ -6053,7 +6116,7 @@ function monRow(t) {
     <td class="wrap" style="max-width:230px">
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px"><span class="pill q bare">${downloadLabel}</span></div>
       ${monitorStrategySummary(t)}
-      ${t.platform === "xhs" ? "" : `<span class="pill q bare">${QMAP[t.video_quality] || "默认画质"}</span> `}
+      ${["xhs", "zhihu", "taobao"].includes(t.platform) ? "" : `<span class="pill q bare">${QMAP[t.video_quality] || "默认画质"}</span> `}
       <span class="mut" title="${esc(t.download_dir || "默认目录")}" style="display:inline-block;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle">${esc(t.download_dir || "默认")}</span></td>
     <td class="mut">${t.last_scan_at ? new Date(t.last_scan_at + "Z").toLocaleString() : "—"}${t.last_error ? ` <span class="warn-ic" title="${esc(t.last_error)}">${ic("i-info")}</span>` : ""}${autoRunHint(t.next_auto_run_at)}</td>
     <td><span class="pill ${t.enabled ? "active" : "paused"}">${t.enabled ? "监控中" : "已暂停"}</span></td>
@@ -6223,8 +6286,8 @@ function srcOf(r) {
   return contentSourceMarkup(r);
 }
 function noteCard(r) {
-  const typeIc = r.media_type === "images" ? "i-image" : "i-play";
-  const typeLabel = r.media_type === "images" ? "图文" : "视频";
+  const typeIc = r.media_type === "images" ? "i-image" : r.media_type === "text" ? "i-info" : "i-play";
+  const typeLabel = r.media_type === "images" ? "图文" : r.media_type === "text" ? "文本" : "视频";
   const cover = r.cover_url
     ? `<img class="ncard-cover" src="${esc(safeMediaUrl(r.cover_url))}" alt="${esc((r.desc || "笔记").slice(0, 20))}" referrerpolicy="no-referrer" loading="lazy" onclick="openPreview(${r.id})">`
     : `<div class="ncard-cover ph" onclick="openPreview(${r.id})">${ic("i-image")}</div>`;
@@ -6384,7 +6447,7 @@ async function refreshContents(resetPage = false) {
   if ($("content-filter-count")) $("content-filter-count").textContent =
     `显示 ${rows.length} / ${Number(meta.total || rows.length)}`;
   const xhs = PLATFORM === "xhs";
-  $("content-title").textContent = xhs ? "笔记记录" : "作品记录";
+  $("content-title").textContent = xhs ? "笔记记录" : PLATFORM === "zhihu" ? "回答 / 文章记录" : PLATFORM === "taobao" ? "商品记录" : "作品记录";
   $("content-table-wrap").style.display = xhs ? "none" : "";
   $("content-cards").style.display = xhs ? "" : "none";
   if (xhs) {
@@ -6395,20 +6458,26 @@ async function refreshContents(resetPage = false) {
   }
   $("content-table").innerHTML = rows.map(r => {
     const description = esc(r.desc || "(无描述)");
+    const sourceUrl = safeMediaUrl(r.source_url);
+    const sourceLink = sourceUrl
+      ? `<a class="content-source-link" href="${esc(sourceUrl)}" target="_blank" rel="noopener noreferrer">打开原文</a>`
+      : "";
     return `<tr>
       <td class="content-check-cell"><label class="content-selection" title="选择这条作品"><input type="checkbox" data-id="${r.id}" aria-label="选择这条作品" onchange="contentToggleOne(${r.id}, this.checked)" ${selContent.has(r.id) ? "checked" : ""}></label></td>
-      <td class="content-cover-cell">${r.cover_url ? `<img class="thumb" src="${esc(safeMediaUrl(r.cover_url))}" alt="封面" referrerpolicy="no-referrer" onclick="openPreview(${r.id})">` : `<span class="content-cover-empty">${ic(r.media_type === "images" ? "i-image" : "i-film")}</span>`}</td>
+      <td class="content-cover-cell">${r.cover_url ? `<img class="thumb" src="${esc(safeMediaUrl(r.cover_url))}" alt="封面" referrerpolicy="no-referrer" onclick="openPreview(${r.id})">` : `<span class="content-cover-empty">${ic(r.media_type === "images" ? "i-image" : r.media_type === "text" ? "i-info" : "i-film")}</span>`}</td>
       <td class="content-desc-cell">
         <div class="content-desc-text" title="${description}">${description}</div>
+        ${r.platform === "taobao" && r.shop_name ? `<div class="content-origin-meta">店铺：${esc(r.shop_name)}</div>` : ""}
+        ${sourceLink}
         ${contentSourceMarkup(r)}
       </td>
-      <td class="content-type-cell"><span class="content-kind">${r.media_type === "images" ? "图集" : "视频"}</span>${r.quality ? `<span class="content-quality">${esc(r.quality)}</span>` : ""}</td>
+      <td class="content-type-cell"><span class="content-kind">${r.platform === "taobao" ? "商品主图" : r.media_type === "images" ? "图集" : r.media_type === "text" ? "回答 / 文章" : "视频"}</span>${r.quality ? `<span class="content-quality">${esc(r.quality)}</span>` : ""}</td>
       <td class="content-record-time"><span class="content-origin-label">抓取入库</span>${contentCapturedTime(r.captured_at)}<div class="content-published-time">发布 · ${fmtTime(r.create_time)}</div></td>
-      <td class="content-metrics num"><span class="metric like">${ic("i-heart")}${fmtNum(r.like_count)}</span>${r.duration ? `<span class="metric">${ic("i-clock")}${fmtDur(r.duration)}</span>` : ""}</td>
+      <td class="content-metrics num">${r.platform === "taobao" ? `<span class="metric like">¥${Number(r.price || 0).toFixed(2)}</span><span class="metric">月销 ${fmtNum(r.sales_count)}</span>` : `<span class="metric like">${ic("i-heart")}${fmtNum(r.like_count)}</span>${r.duration ? `<span class="metric">${ic("i-clock")}${fmtDur(r.duration)}</span>` : ""}`}</td>
       <td class="content-action-cell">
         <div class="content-status-row"><span class="pill ${r.download_status}">${contentStatusLabel(r.download_status)}</span>${r.error ? `<span class="warn-ic" data-tip="${esc(r.error)}">${ic("i-info")}</span>` : ""}</div>
         <div class="content-action-buttons">
-          ${["failed", "skipped"].includes(r.download_status) ? `<button class="ghost sm" onclick="retryDl(${r.id})">${r.download_status === "skipped" ? "下载" : "重试"}</button>` : ""}
+          ${r.platform !== "zhihu" && ["failed", "skipped"].includes(r.download_status) ? `<button class="ghost sm" onclick="retryDl(${r.id})">${r.download_status === "skipped" ? "下载" : "重试"}</button>` : ""}
           ${(PLATFORM === "douyin" && r.download_status === "done") ? `<button class="ghost sm content-action-primary" onclick="pickRepostTarget(${r.id})">${ic("i-send")}转发</button>` : ""}
           ${(PLATFORM === "xhs" && r.download_status === "done") ? `<button class="ghost sm content-action-primary" onclick="repostDouyin(${r.id})">${ic("i-send")}发抖音</button>` : ""}
           <button class="ghost sm content-action-delete danger" onclick="delContent(${r.id})" data-tip="删除作品" aria-label="删除作品">${ic("i-trash")}</button>
@@ -8305,7 +8374,7 @@ switchTab((() => {
 switchHubTab(HUB_TAB);   // 恢复上次停留的子标签(我的作品/关注/粉丝/私信)
 
 // restore last-selected platform (default: 抖音)
-PLATFORM = (() => { try { const p = localStorage.getItem("dym-pf"); return ["xhs", "douyin", "kuaishou", "shipinhao"].includes(p) ? p : "douyin"; } catch (e) { return "douyin"; } })();
+PLATFORM = (() => { try { const p = localStorage.getItem("dym-pf"); return ["xhs", "douyin", "kuaishou", "shipinhao", "zhihu", "taobao"].includes(p) ? p : "douyin"; } catch (e) { return "douyin"; } })();
 applyPlatformUI();
 updateTaskQueuePlatformLabel();
 

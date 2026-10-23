@@ -45,6 +45,7 @@ class Downloader:
         _pf = getattr(aweme, "platform", "douyin")
         referer = ("https://www.xiaohongshu.com/" if _pf == "xhs"
                    else "https://www.kuaishou.com/" if _pf == "kuaishou"
+                   else "https://s.taobao.com/" if _pf == "taobao"
                    else "https://www.douyin.com/")
         headers = {"User-Agent": self.ua, "Referer": referer}
 

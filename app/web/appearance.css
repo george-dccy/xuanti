@@ -76,6 +76,18 @@ body.pf-shipinhao {
   --brand-shadow:0 4px 14px -4px rgba(7,193,96,.38);
   --acc:#087843; --acc-solid:#087843; --acc-hover:#066237;
 }
+body.pf-zhihu {
+  --brand:#0066ff; --brand-secondary:#5d9dff;
+  --brand-mark:linear-gradient(135deg,#0066ff,#5d9dff);
+  --brand-shadow:0 4px 14px -4px rgba(0,102,255,.32);
+  --acc:#0758d8; --acc-solid:#0758d8; --acc-hover:#0648b5;
+}
+body.pf-taobao {
+  --brand:#ff6a00; --brand-secondary:#ff9b52;
+  --brand-mark:linear-gradient(135deg,#ff6a00,#ff9b52);
+  --brand-shadow:0 4px 14px -4px rgba(255,106,0,.34);
+  --acc:#c94f00; --acc-solid:#c94f00; --acc-hover:#a94000;
+}
 :root[data-theme="dark"] body.pf-xhs {
   --acc:#ff758a; --chart-secondary:#78d7f6;
   --bg:#171214; --bg-grad:#1b1518;
@@ -88,6 +100,8 @@ body.pf-shipinhao {
 }
 :root[data-theme="dark"] body.pf-kuaishou { --acc:#ffb478; }
 :root[data-theme="dark"] body.pf-shipinhao { --acc:#64dca1; }
+:root[data-theme="dark"] body.pf-zhihu { --acc:#6ea7ff; }
+:root[data-theme="dark"] body.pf-taobao { --acc:#ff9d62; }
 /* Resolve derived colors where platform tokens live, not at the root default. */
 body {
   --acc-soft:color-mix(in srgb,var(--acc) 10%,transparent);
