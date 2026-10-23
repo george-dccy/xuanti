@@ -63,7 +63,12 @@ class LocalAccessMiddleware:
         try:
             hostname = (request.url.hostname or "").lower().rstrip(".")
             trusted_proxy_host = hostname in self.public_hosts
-            valid_peer = bool(request.client and loopback(request.client.host))
+            forwarded_proxy = bool(
+                request.headers.get("x-forwarded-for")
+                or request.headers.get("x-forwarded-proto")
+            )
+            valid_peer = bool(request.client and loopback(request.client.host)) \
+                or (trusted_proxy_host and forwarded_proxy)
             valid_host = loopback(hostname) or trusted_proxy_host
             valid_local = (valid_peer and valid_host
                            and len(request.headers.getlist("host")) == 1)
