@@ -1,6 +1,7 @@
 """Lightweight boundaries for a single-user, local-only workbench. No login."""
 from __future__ import annotations
 
+import os
 from ipaddress import ip_address
 from urllib.parse import urlsplit
 
@@ -45,6 +46,11 @@ class LocalAccessMiddleware:
     """Protect local data/actions, without users, passwords, sessions or roles."""
     def __init__(self, app):
         self.app = app
+        self.public_hosts = frozenset(
+            host.strip().lower().rstrip(".")
+            for host in os.environ.get("CREATORHUB_PUBLIC_HOSTS", "").split(",")
+            if host.strip()
+        )
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -55,12 +61,17 @@ class LocalAccessMiddleware:
         api = path == "/api" or path.startswith("/api/")
         error = None
         try:
-            valid_local = local_request(request) and len(request.headers.getlist("host")) == 1
+            hostname = (request.url.hostname or "").lower().rstrip(".")
+            trusted_proxy_host = hostname in self.public_hosts
+            valid_peer = bool(request.client and loopback(request.client.host))
+            valid_host = loopback(hostname) or trusted_proxy_host
+            valid_local = (valid_peer and valid_host
+                           and len(request.headers.getlist("host")) == 1)
             request.url.port
         except ValueError:
             valid_local = False
         if not valid_local:
-            error = "当前工作台仅供本机使用，请通过 127.0.0.1 或 localhost 访问"
+            error = "当前工作台仅供本机或受信反向代理访问"
         elif api and (request.headers.get("sec-fetch-site", "") in {"cross-site", "same-site"}
                       or ("origin" in request.headers and not _same_origin(request, request.headers["origin"]))):
             error = "请从 CreatorHub 同源页面发起请求"

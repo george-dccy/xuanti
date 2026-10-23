@@ -21,6 +21,7 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: "1",
         TZ: "Asia/Shanghai",
+        CREATORHUB_PUBLIC_HOSTS: "xuanti.boluomi.ren",
       },
     },
   ],
