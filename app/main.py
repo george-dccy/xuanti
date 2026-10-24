@@ -79,7 +79,6 @@ from .platforms.kuaishou import (resolve_ks_user_id, resolve_ks_photo_id,
                   parse_self_user as parse_ks_self_user,
                   MANAGE_URL as KS_MANAGE_URL)
 from .platforms.channels import parse_self_user as parse_channels_self_user
-from .platforms.zhihu import resolve_zhihu_user_token
 from .engine import Downloader, MonitorEngine
 from .engine.share_downloader import (
     clean_platform_share_target,
@@ -7270,9 +7269,9 @@ async def export_keyword_collection(job_id: int, content_id: int | None = None,
 
 
 class TargetIn(BaseModel):
-    url_or_secuid: str                       # 平台主页链接 / 用户 ID / 小红书关键词
+    url_or_secuid: str                       # 平台主页链接 / 知乎或淘宝搜索关键词 / 用户 ID
     platform: str = "douyin"                # douyin | xhs | kuaishou | zhihu | taobao
-    target_kind: str = "creator"            # creator | keyword(小红书/淘宝)
+    target_kind: str = "creator"            # creator | keyword(小红书/知乎/淘宝)
     account_id: int | None = None
     interval_seconds: int = 300
     initial_backfill_count: int | None = None
@@ -7392,7 +7391,8 @@ async def add_monitor(body: TargetIn):
     sec_uid = keyword = xsec_token = ""
     kind = "creator"
 
-    if platform == "taobao" or (platform == "xhs" and body.target_kind == "keyword"):
+    if platform in {"zhihu", "taobao"} or (
+            platform == "xhs" and body.target_kind == "keyword"):
         kind = "keyword"
         keyword = body.url_or_secuid.strip()
         if not keyword:
@@ -7413,11 +7413,6 @@ async def add_monitor(body: TargetIn):
         sec_uid = await resolve_sec_uid(target_input, cfg.engine.user_agent)
         if not sec_uid:
             raise HTTPException(400, "无法解析 sec_uid,请粘贴完整分享文案、主页链接 / v.douyin.com 短链 / sec_uid")
-    elif platform == "zhihu":
-        sec_uid = resolve_zhihu_user_token(target_input) or ""
-        if not sec_uid:
-            raise HTTPException(400, "无法解析知乎 url_token,请粘贴知乎用户主页 /people/<url_token> 或直接填写 url_token")
-
     dl = body.download_dir.strip()
     if not 1 <= body.interval_seconds <= 86400:
         raise HTTPException(400, "监控间隔须为 1~86400 秒")

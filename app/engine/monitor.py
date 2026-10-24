@@ -27,7 +27,7 @@ from ..browser import (BrowserManager, fetch_videos, fetch_comments,
                        post_ks_comment,
                        fetch_channels_works, fetch_channels_comments,
                        fetch_channels_self_profile, post_channels_comment,
-                       fetch_zhihu_works,
+                       fetch_zhihu_search, fetch_zhihu_works,
                        fetch_taobao_products,
                        fetch_account_works, fetch_douyin_account_works_api,
                        do_follow, send_dm, send_dm_api)
@@ -222,8 +222,13 @@ def _select_douyin_awemes(items: list, quality: str, first_scan: bool,
 
 def _select_zhihu_works(items: list[ZhihuWork], first_scan: bool,
                          monitor_since: int,
-                         initial_backfill_count: int) -> list[ZhihuWork]:
-    """按订阅时间选择知乎回答/文章，并保持最新内容优先。"""
+                         initial_backfill_count: int,
+                         *, keyword: bool = False) -> list[ZhihuWork]:
+    """按订阅时间选择知乎回答/文章，并保持最新内容优先。
+
+    关键词监控的首次结果就是搜索结果快照，不按“订阅后发布时间”过滤，
+    否则搜索到的已有热门回答会全部被静默丢掉。
+    """
     parsed = []
     seen: set[str] = set()
     for item in items or []:
@@ -232,6 +237,8 @@ def _select_zhihu_works(items: list[ZhihuWork], first_scan: bool,
         seen.add(item.aweme_id)
         parsed.append(item)
     parsed.sort(key=lambda item: (item.create_time, item.aweme_id), reverse=True)
+    if keyword:
+        return parsed
     if not first_scan:
         return [item for item in parsed
                 if not item.create_time or item.create_time >= monitor_since]
@@ -1191,7 +1198,8 @@ class MonitorEngine:
             # 这些读取型 Cookie 账号没有 CreatorHub 的“自己的主页”探测接口；
             # 有效性会在目标读取时由对应平台响应判定，避免误用抖音资料接口。
             return {"ok": False, "indeterminate": True,
-                    "error": "知乎账号健康状态随作者监控读取判定"}
+                    "error": "知乎账号健康状态随关键词监控读取判定" if platform == "zhihu"
+                    else "淘宝账号健康状态随搜索监控读取判定"}
         with get_session() as session:
             before = session.get(AccountRiskState, aid)
             was_recovering = bool(before and before.risk_level > 0)
@@ -1785,7 +1793,7 @@ class MonitorEngine:
         return {"ok": not error, "new": len(new_records), "error": error,
                 "scanned": len(seen), "filtered": filtered_count}
 
-    # ── 知乎:作者回答 / 文章监控(登录态浏览器调用公开 v4 列表接口)──
+    # ── 知乎:关键词搜索 / 兼容旧作者监控──
     async def _scan_zhihu_target_locked(self, target_id: int) -> dict:
         with get_session() as s:
             target = s.get(MonitorTarget, target_id)
@@ -1808,17 +1816,26 @@ class MonitorEngine:
                 select(ContentRecord.aweme_id)
                 .where(ContentRecord.target_id == target_id)).all())
             user_token = target.sec_uid
+            keyword = target.keyword
             strategy = _monitor_strategy(
                 target, default_scrolls=3, default_items=20)
             backfill_count = target.initial_backfill_count
             monitor_since = int(target.created_at.timestamp())
 
-        items, author, error = await fetch_zhihu_works(
-            self.browser, identity, user_token, known,
-            max_pages=strategy["max_scrolls"],
-            block_media=self.cfg.engine.block_media_resources)
+        if target.target_kind == "keyword":
+            items, error = await fetch_zhihu_search(
+                self.browser, identity, keyword, known,
+                max_pages=strategy["max_scrolls"],
+                block_media=self.cfg.engine.block_media_resources)
+            author = None
+        else:
+            items, author, error = await fetch_zhihu_works(
+                self.browser, identity, user_token, known,
+                max_pages=strategy["max_scrolls"],
+                block_media=self.cfg.engine.block_media_resources)
         selected = _select_zhihu_works(
-            items, first_scan, monitor_since, backfill_count)
+            items, first_scan, monitor_since, backfill_count,
+            keyword=target.target_kind == "keyword")
         new_records = []
         filtered_count = 0
         for work in selected:
@@ -1853,7 +1870,9 @@ class MonitorEngine:
                     if not t.avatar:
                         t.avatar = author.get("avatar", "") or t.avatar
                 s.add(t)
-                target_name = t.nickname or t.sec_uid[:24]
+                target_name = t.nickname or (
+                    f"#{t.keyword}" if t.target_kind == "keyword"
+                    else t.sec_uid[:24])
             s.commit()
             for rec, _ in new_records:
                 s.refresh(rec)

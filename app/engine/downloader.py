@@ -47,7 +47,12 @@ class Downloader:
                    else "https://www.kuaishou.com/" if _pf == "kuaishou"
                    else "https://s.taobao.com/" if _pf == "taobao"
                    else "https://www.douyin.com/")
-        headers = {"User-Agent": self.ua, "Referer": referer}
+        headers = {
+            "User-Agent": self.ua,
+            "Referer": referer,
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Accept-Encoding": "identity",
+        }
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True,

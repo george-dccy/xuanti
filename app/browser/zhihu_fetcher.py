@@ -1,11 +1,15 @@
-"""通过知乎登录态浏览器读取作者回答和文章。"""
+"""通过知乎登录态读取作者作品或关键词搜索结果。"""
 from __future__ import annotations
 
-from urllib.parse import quote
+import json
+from urllib.parse import quote, urlencode
+
+import httpx
 
 from .identity import Identity
-from .manager import BrowserManager
-from ..platforms.zhihu.extract import parse_zhihu_items
+from .manager import BrowserManager, normalize_proxy
+from ..platforms.zhihu.extract import parse_zhihu_items, parse_zhihu_search_items
+from ..platforms.zhihu.sign import sign as sign_zhihu
 
 
 # Endpoint shape is based on OpenCLI's Apache-2.0 Zhihu adapter; the browser
@@ -18,6 +22,17 @@ _INCLUDE = (
     "data[*].voteup_count,data[*].comment_count,data[*].reaction_statistics,"
     "data[*].url,data[*].author"
 )
+
+_SEARCH_PAGE_URL = "https://www.zhihu.com/search?q={keyword}&search_source=Filter&type=content"
+_SEARCH_API = "https://www.zhihu.com/api/v4/search_v3"
+_SEARCH_HEADERS = {
+    "accept": "*/*",
+    "accept-language": "zh-CN,zh;q=0.9",
+    "x-api-version": "3.0.91",
+    "x-app-za": "OS=Web",
+    "x-requested-with": "fetch",
+    "x-zse-93": "101_3_3.0",
+}
 
 
 def _api_url(user_token: str, kind: str) -> str:
@@ -36,6 +51,119 @@ def _error_text(status: int, kind: str, detail: str = "") -> str:
         return "知乎用户不存在，或该用户的公开内容接口不可用"
     suffix = f"：{detail}" if detail else ""
     return f"知乎{label}接口请求失败（HTTP {status}）{suffix}"
+
+
+def _cookie_header(cookies: list[dict]) -> str:
+    pairs = []
+    for cookie in cookies or []:
+        name = str(cookie.get("name") or "").strip()
+        if name:
+            pairs.append(f"{name}={cookie.get('value', '')}")
+    return "; ".join(pairs)
+
+
+def _search_params(keyword: str, offset: int, limit: int = 20) -> dict[str, object]:
+    return {
+        "gk_version": "gz-gaokao",
+        "t": "general",
+        "q": keyword,
+        "correction": 1,
+        "offset": offset,
+        "limit": limit,
+        "filter_fields": "",
+        "lc_idx": offset,
+        "show_all_topics": 0,
+        "search_source": "Filter",
+        "time_interval": "",
+        "sort": "",
+        "vertical": "",
+    }
+
+
+async def fetch_zhihu_search(
+    mgr: BrowserManager,
+    identity: Identity,
+    keyword: str,
+    known_ids: set[str],
+    *,
+    max_pages: int = 3,
+    block_media: bool = True,
+) -> tuple[list, str]:
+    """按 MediaCrawler 的方式读取知乎关键词搜索。
+
+    先打开搜索页让浏览器建立真实 Cookie，再用同一账号 Cookie 调用
+    ``search_v3`` 并生成知乎要求的签名；这样不会把未签名的浏览器 fetch
+    当成已经登录的接口请求。
+    """
+    page = await mgr.new_page(identity, block_media)
+    error = ""
+    try:
+        search_url = _SEARCH_PAGE_URL.format(keyword=quote(keyword, safe=""))
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(800)
+        cookies = await page.context.cookies(["https://www.zhihu.com"])
+        cookie_header = _cookie_header(cookies)
+        if "d_c0=" not in cookie_header:
+            return [], "知乎 Cookie 缺少 d_c0；请从知乎登录态重新复制完整 Cookie"
+        try:
+            sign_zhihu("/api/v4/search_v3?q=test", cookie_header)
+        except Exception as exc:
+            return [], f"知乎签名运行环境不可用: {exc}"
+
+        ua = identity.ua or (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        )
+        items = []
+        seen: set[str] = set()
+        pages = max(1, min(int(max_pages or 3), 30))
+        proxy = normalize_proxy(identity.proxy)
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=True, proxy=proxy or None
+        ) as client:
+            for page_index in range(pages):
+                params = _search_params(keyword, page_index * 20)
+                query = urlencode(params)
+                uri = f"/api/v4/search_v3?{query}"
+                headers = {
+                    **_SEARCH_HEADERS,
+                    "cookie": cookie_header,
+                    "referer": search_url,
+                    "user-agent": ua,
+                    **sign_zhihu(uri, cookie_header),
+                }
+                response = await client.get(_SEARCH_API, params=params, headers=headers)
+                if response.status_code != 200:
+                    detail = response.text[:160]
+                    if response.status_code in {401, 403}:
+                        return items, "知乎搜索接口拒绝访问；请更新包含 d_c0 / z_c0 的 Cookie"
+                    return items, _error_text(response.status_code, "answers", detail)
+                try:
+                    payload = response.json()
+                except json.JSONDecodeError:
+                    return items, "知乎搜索接口返回了非 JSON 内容，可能触发安全验证"
+                if not isinstance(payload, dict):
+                    return items, "知乎搜索接口返回结构异常"
+                page_items = parse_zhihu_search_items(payload)
+                fresh = 0
+                for item in page_items:
+                    if item.aweme_id in seen or item.aweme_id in known_ids:
+                        continue
+                    seen.add(item.aweme_id)
+                    items.append(item)
+                    fresh += 1
+                paging = payload.get("paging") or {}
+                if not page_items or paging.get("is_end") or not fresh:
+                    break
+        return items, ""
+    except Exception as exc:
+        return [], f"知乎关键词搜索失败: {exc}"
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
 
 
 async def fetch_zhihu_works(

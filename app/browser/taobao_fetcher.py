@@ -12,30 +12,89 @@ _SEARCH_URL = "https://s.taobao.com/search?q={keyword}&sort=sale-desc&s={offset}
 
 _CARD_JS = r"""
 () => {
-  const anchors = [...document.querySelectorAll('a[href]')]
-    .filter(a => /(?:item\.taobao\.com\/item\.htm|detail\.tmall\.com\/item\.htm)/i.test(a.href));
+  const absolute = value => {
+    try { return new URL(String(value || ''), location.href).href; }
+    catch (_) { return ''; }
+  };
+  const textOf = node => (node?.innerText || node?.textContent || '')
+    .replace(/\s+/g, ' ').trim();
+  const imageOf = img => {
+    if (!img) return '';
+    const attrs = ['data-src', 'data-lazyload', 'data-original',
+      'data-ks-lazyload', 'data-lazy-src', 'src'];
+    for (const attr of attrs) {
+      const value = img.getAttribute(attr) || '';
+      if (value && !value.startsWith('data:')) return absolute(value);
+    }
+    const srcset = img.getAttribute('srcset') || '';
+    const first = srcset.split(',')[0]?.trim().split(/\s+/)[0] || '';
+    return first ? absolute(first) : '';
+  };
+  const idFrom = value => {
+    const raw = String(value || '');
+    const match = raw.match(/(?:[?&]id=|[?&]item_id=|\/item\/)(\d{6,})/i);
+    return match ? match[1] : '';
+  };
+  const cardOf = node => node?.closest(
+    'li,article,[data-item-id],[data-itemid],div[class*="item"],div[class*="Item"]'
+  ) || node?.parentElement;
+  const nodes = [...document.querySelectorAll('a[href], [data-item-id], [data-itemid]')]
+    .filter(node => {
+      const href = node.href || node.getAttribute('href') || '';
+      return /(?:item\.taobao\.com|detail\.tmall\.com|detail\.taobao\.com)/i.test(href)
+        || idFrom(node.getAttribute('data-item-id'))
+        || idFrom(node.getAttribute('data-itemid'));
+    });
   const seen = new Set();
   const rows = [];
-  const textOf = node => (node?.innerText || '').replace(/\s+/g, ' ').trim();
-  for (const anchor of anchors) {
-    const match = anchor.href.match(/[?&]id=(\d+)/);
-    if (!match || seen.has(match[1])) continue;
-    seen.add(match[1]);
-    let card = anchor.closest('li,article,div[class*="Card"],div[class*="item"],div[class*="Item"]');
-    if (!card) card = anchor.parentElement;
+  const add = (id, sourceUrl, card, fallbackTitle = '', fallbackImage = '', fallbackPrice = '') => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
     const images = [...(card?.querySelectorAll('img') || [])]
-      .map(img => img.currentSrc || img.src || img.dataset.src || img.dataset.ksLazyload || '')
-      .filter(Boolean);
-    const titleNode = card?.querySelector('[class*="title"],[class*="Title"],[class*="name"],[class*="Name"]');
-    const shopNode = card?.querySelector('[class*="shop"],[class*="Shop"],[class*="seller"],[class*="Seller"]');
+      .map(imageOf).filter(Boolean);
+    if (fallbackImage && !images.includes(fallbackImage)) images.unshift(fallbackImage);
+    const titleNode = card?.querySelector(
+      '[class*="title"],[class*="Title"],[class*="name"],[class*="Name"]'
+    );
+    const shopNode = card?.querySelector(
+      '[class*="shop"],[class*="Shop"],[class*="seller"],[class*="Seller"]'
+    );
+    const priceNode = card?.querySelector(
+      '[class*="price"],[class*="Price"],[data-price]'
+    );
     rows.push({
-      id: match[1], url: anchor.href,
-      title: textOf(titleNode) || textOf(anchor),
-      shop: textOf(shopNode), image: images[0] || '', images,
-      text: textOf(card) || textOf(anchor),
+      id, url: absolute(sourceUrl),
+      title: textOf(titleNode) || fallbackTitle || textOf(card),
+      shop: textOf(shopNode),
+      price: priceNode?.getAttribute('data-price') || textOf(priceNode) || fallbackPrice,
+      image: images[0] || '', images,
+      text: textOf(card) || fallbackTitle,
     });
+  };
+  for (const node of nodes) {
+    const href = node.href || node.getAttribute('href') || '';
+    const id = idFrom(href) || idFrom(node.getAttribute('data-item-id'))
+      || idFrom(node.getAttribute('data-itemid'));
+    const card = cardOf(node);
+    add(id, href, card, node.getAttribute('title') || node.getAttribute('aria-label') || '');
   }
-  return rows;
+  // 某些版本只把商品卡片放进 JSON-LD，不渲染可识别的商品链接。
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const value = JSON.parse(script.textContent || 'null');
+      const entries = Array.isArray(value) ? value : [value];
+      for (const item of entries) {
+        if (!item || typeof item !== 'object') continue;
+        const id = idFrom(item.productID || item.sku || item.url);
+        const image = Array.isArray(item.image) ? item.image[0] : item.image;
+        const price = item.offers?.price || '';
+        add(id, item.url || '', null, item.name || '', absolute(image), price);
+      }
+    } catch (_) {}
+  }
+  const bodyText = textOf(document.body);
+  const blocked = rows.length === 0 && /(安全验证|滑动验证|验证码|访问受限|请完成验证)/.test(bodyText);
+  return {rows, blocked, title: document.title || '', body: bodyText.slice(0, 300)};
 }
 """
 
@@ -61,6 +120,7 @@ async def fetch_taobao_products(
     products: list[TaobaoProduct] = []
     seen: set[str] = set()
     error = ""
+    saw_rows = False
     try:
         pages = max(1, min(int(max_pages or 3), 30))
         for page_index in range(pages):
@@ -71,9 +131,13 @@ async def fetch_taobao_products(
                 await page.wait_for_timeout(1800)
             except Exception:
                 pass
-            raw_rows = await page.evaluate(_CARD_JS)
-            if not isinstance(raw_rows, list):
-                raw_rows = []
+            snapshot = await page.evaluate(_CARD_JS)
+            if not isinstance(snapshot, dict):
+                snapshot = {}
+            raw_rows = snapshot.get("rows") or []
+            if snapshot.get("blocked"):
+                return [], "淘宝搜索页触发安全验证，请在当前账号浏览器窗口完成验证后再重试"
+            saw_rows = saw_rows or bool(raw_rows)
             page_products = []
             for raw in raw_rows:
                 item = parse_taobao_product(raw)
@@ -90,7 +154,7 @@ async def fetch_taobao_products(
                 break
             if page_products == [] and page_index > 0:
                 break
-        if not products:
+        if not products and not saw_rows:
             error = _error_message(page.url)
     except Exception as exc:
         error = _error_message(getattr(page, "url", ""), repr(exc))

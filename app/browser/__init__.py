@@ -17,7 +17,7 @@ from .ks_fetcher import (fetch_ks_videos, fetch_ks_comments, fetch_ks_self_profi
                          post_ks_comment)
 from .channels_fetcher import (fetch_channels_works, fetch_channels_comments,
                                fetch_channels_self_profile, post_channels_comment)
-from .zhihu_fetcher import fetch_zhihu_works
+from .zhihu_fetcher import fetch_zhihu_search, fetch_zhihu_works
 from .taobao_fetcher import fetch_taobao_products
 from .account_hub import (fetch_account_works, fetch_douyin_account_works_api, fetch_follows,
                           fetch_dm_conversations, fetch_dm_history,
@@ -39,7 +39,7 @@ __all__ = ["BrowserManager", "cookie_string_to_state",
            "post_ks_comment",
            "fetch_channels_works", "fetch_channels_comments",
            "fetch_channels_self_profile", "post_channels_comment",
-           "fetch_zhihu_works",
+           "fetch_zhihu_search", "fetch_zhihu_works",
            "fetch_taobao_products",
            "fetch_account_works", "fetch_douyin_account_works_api", "fetch_follows",
            "fetch_dm_conversations", "fetch_dm_history",

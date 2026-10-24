@@ -132,3 +132,34 @@ def parse_zhihu_items(answer_rows: list, article_rows: list) -> list[ZhihuWork]:
             rows.append(item)
     rows.sort(key=lambda item: (item.create_time, item.aweme_id), reverse=True)
     return rows
+
+
+def parse_zhihu_search_items(payload: dict) -> list[ZhihuWork]:
+    """解析知乎 ``/api/v4/search_v3`` 的搜索结果。
+
+    搜索响应的外层类型是 ``search_result``，真正的回答或文章放在
+    ``object`` 中；不要把外层卡片当成作品，否则会丢掉题目、链接和作者字段。
+    """
+    if not isinstance(payload, dict):
+        return []
+    rows: list[ZhihuWork] = []
+    seen: set[str] = set()
+    for entry in payload.get("data") or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type") not in {"search_result", "zvideo"}:
+            continue
+        raw = entry.get("object")
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("type") or "").strip().lower()
+        # 关键词监控先覆盖回答和文章；视频搜索结果没有文本下载语义，
+        # 避免把它伪装成“回答 / 文章”入库。
+        if kind not in {"answer", "article"}:
+            continue
+        item = parse_zhihu_work(raw, kind)
+        if item and item.aweme_id not in seen:
+            seen.add(item.aweme_id)
+            rows.append(item)
+    rows.sort(key=lambda item: (item.create_time, item.aweme_id), reverse=True)
+    return rows

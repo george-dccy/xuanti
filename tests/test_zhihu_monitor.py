@@ -1,4 +1,4 @@
-"""Offline contracts for the Zhihu creator monitor."""
+"""Offline contracts for the Zhihu keyword monitor."""
 import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -11,7 +11,7 @@ import app.db as db
 from app.browser.manager import cookie_string_to_state
 from app.engine.monitor import MonitorEngine
 from app.models import ContentRecord, DouyinAccount, MonitorTarget
-from app.platforms.zhihu.extract import parse_zhihu_items
+from app.platforms.zhihu.extract import parse_zhihu_items, parse_zhihu_search_items
 from app.platforms.zhihu.resolve import resolve_zhihu_user_token
 from test_project_optimizations import local_project, store
 
@@ -50,19 +50,44 @@ def test_zhihu_items_normalize_answers_and_articles():
     assert items[0].media_type == "text"
 
 
+def test_zhihu_search_items_unwrap_search_result_objects():
+    items = parse_zhihu_search_items({
+        "data": [
+            {
+                "type": "search_result",
+                "object": {
+                    "type": "answer",
+                    "id": "101",
+                    "question": {"id": "9", "title": "关键词问题"},
+                    "excerpt": "搜索结果摘要",
+                    "url": "https://www.zhihu.com/question/9/answer/101",
+                    "created_time": 1_700_000_000,
+                },
+            },
+            {
+                "type": "search_result",
+                "object": {"type": "zvideo", "id": "ignored"},
+            },
+        ]
+    })
+    assert len(items) == 1
+    assert items[0].aweme_id == "answer:101"
+    assert items[0].source_url.endswith("/question/9/answer/101")
+
+
 def test_zhihu_cookie_state_uses_zhihu_domain():
     state = cookie_string_to_state("z_c0=secret; d_c0=session", "zhihu")
     assert '"domain": ".zhihu.com"' in state
 
 
-def test_zhihu_monitor_records_text_without_download(local_project, monkeypatch):
+def test_zhihu_keyword_monitor_records_text_without_download(local_project, monkeypatch):
     local_project.cfg.risk_control.enabled = False
     engine = MonitorEngine(local_project.cfg, local_project.browser)
     account = store(DouyinAccount(
         platform="zhihu", status="active", storage_state=cookie_string_to_state("z_c0=x", "zhihu"),
         nickname="知乎读取号"))
     target = store(MonitorTarget(
-        platform="zhihu", sec_uid="creator-token", account_id=account,
+        platform="zhihu", target_kind="keyword", keyword="关键词测试", account_id=account,
         created_at=datetime.utcnow() - timedelta(days=1), download_enabled=False))
     work = parse_zhihu_items(
         [{
@@ -77,8 +102,8 @@ def test_zhihu_monitor_records_text_without_download(local_project, monkeypatch)
     )[0]
     monkeypatch.setattr(engine, "_identity_proxy", lambda _account: (SimpleNamespace(), ""))
     monkeypatch.setattr(
-        monitor, "fetch_zhihu_works",
-        AsyncMock(return_value=([work], {"nickname": "知乎作者"}, "")),
+        monitor, "fetch_zhihu_search",
+        AsyncMock(return_value=([work], "")),
     )
     engine._notify_new = AsyncMock()
 
@@ -92,5 +117,5 @@ def test_zhihu_monitor_records_text_without_download(local_project, monkeypatch)
         assert record.media_type == "text"
         assert record.download_status == "skipped"
         assert record.source_url.endswith("/question/9/answer/101")
-        assert session.get(MonitorTarget, target).nickname == "知乎作者"
+        assert session.get(MonitorTarget, target).nickname == "#关键词测试"
     engine._notify_new.assert_not_awaited()

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from html import unescape
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -32,7 +33,13 @@ def _number(value: Any) -> int:
 def _price(text: str) -> float:
     match = _PRICE_RE.search(text or "")
     if not match:
-        return 0.0
+        raw = str(text or "").strip().replace(",", "")
+        if not re.fullmatch(r"\d+(?:\.\d{1,2})?", raw):
+            return 0.0
+        try:
+            return float(raw)
+        except ValueError:
+            return 0.0
     try:
         return float(match.group(1).replace(",", ""))
     except ValueError:
@@ -45,7 +52,9 @@ def _sales(text: str) -> int:
 
 
 def _image_url(value: Any) -> str:
-    url = str(value or "").strip()
+    url = unescape(str(value or "").strip()).replace("\\/", "/")
+    if url.startswith("data:"):
+        return ""
     if url.startswith("//"):
         return "https:" + url
     if url.startswith("http://") or url.startswith("https://"):
@@ -102,16 +111,16 @@ def parse_taobao_product(raw: dict) -> TaobaoProduct | None:
     if not title:
         title = next((line.strip() for line in text.splitlines() if line.strip()), "淘宝商品")
     images = []
-    for value in raw.get("images") or []:
+    candidates = [raw.get("image"), *(raw.get("images") or [])]
+    for value in candidates:
         url = _image_url(value)
         if url and url not in images:
             images.append(url)
     if not images:
-        cover = _image_url(raw.get("image"))
-        if cover:
-            images.append(cover)
-    if not images:
         return None
+    # 淘宝搜索卡片可能同时暴露缩略图、店铺图和颜色图；当前监控需求是
+    # 商品主图，只保存卡片第一张可用商品图，避免一件商品下载一串重复图片。
+    images = images[:1]
     return TaobaoProduct(
         aweme_id=f"taobao:{product_id}",
         desc=title[:1000],

@@ -1157,6 +1157,8 @@ function applyPlatformUI() {
   });
   document.querySelectorAll(".dy-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "douyin"));
   document.querySelectorAll(".xhs-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "xhs"));
+  const targetKindWrap = $("target-kind-wrap");
+  if (targetKindWrap) targetKindWrap.classList.toggle("hidden", PLATFORM !== "xhs");
   document.querySelectorAll(".ks-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "kuaishou"));
   document.querySelectorAll(".sh-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "shipinhao"));
   document.querySelectorAll(".zhihu-only").forEach(e => e.classList.toggle("hidden", PLATFORM !== "zhihu"));
@@ -1221,7 +1223,7 @@ function applyPlatformUI() {
   applyMonitorForm();
   applyCollectionForm();
   if (PLATFORM === "douyin") applyDanmakuForm();
-  if ($("t-kind")) $("t-kind").value = tb ? "keyword" : PLATFORM === "xhs" ? $("t-kind").value : "creator";
+  if ($("t-kind")) $("t-kind").value = (zh || tb) ? "keyword" : PLATFORM === "xhs" ? $("t-kind").value : "creator";
   // 视频号只有本账号数据,不支持「监控他人」:若正停在这些面板,自动切到「账号管理」
   if (pfIsChannels(PLATFORM)) {
     const cur = (document.querySelector('.navitem.active') || {}).dataset;
@@ -1249,8 +1251,8 @@ function applyPlatformUI() {
       $("t-download-wrap").querySelector("label").textContent = "自动下载范围";
     }
   }
-  if ($("t-url-label")) $("t-url-label").textContent = tb ? "淘宝搜索关键词" : zh ? "知乎用户主页 / url_token" : "创作者主页 / 完整分享文案 / sec_uid";
-  if ($("t-url")) $("t-url").placeholder = tb ? "例如：女装连衣裙、通勤衬衫、针织开衫" : zh ? "例如：知乎用户主页或 url_token" : "直接粘贴整段主页分享文案，将自动提取有效链接";
+  if ($("t-url-label")) $("t-url-label").textContent = tb ? "淘宝搜索关键词" : zh ? "知乎搜索关键词" : "创作者主页 / 完整分享文案 / sec_uid";
+  if ($("t-url")) $("t-url").placeholder = tb ? "例如：女装连衣裙、通勤衬衫、针织开衫" : zh ? "例如：人工智能、跨境电商、职场沟通" : "直接粘贴整段主页分享文案，将自动提取有效链接";
   if ($("t-min-likes-label")) $("t-min-likes-label").textContent = tb ? "最低月销量" : "最低点赞数";
   if ($("t-min-likes") && tb) $("t-min-likes").placeholder = "最低月销量";
   if ($("t-min-comments-wrap")) $("t-min-comments-wrap").hidden = tb;
@@ -1349,7 +1351,7 @@ async function normalizePlatformShareTarget({
 }
 
 function resetMonitorTargetState() {
-  const keywordMode = ["xhs", "taobao"].includes(PLATFORM)
+  const keywordMode = ["xhs", "zhihu", "taobao"].includes(PLATFORM)
     && $("t-kind") && $("t-kind").value === "keyword";
   resetSmartTargetState("t-url", "t-url-feedback", keywordMode
     ? "输入要持续监控的搜索关键词"
@@ -1357,7 +1359,7 @@ function resetMonitorTargetState() {
 }
 
 async function normalizeMonitorTarget(button = null, { quiet = false } = {}) {
-  const keywordMode = ["xhs", "taobao"].includes(PLATFORM)
+  const keywordMode = ["xhs", "zhihu", "taobao"].includes(PLATFORM)
     && $("t-kind") && $("t-kind").value === "keyword";
   if (keywordMode) return $("t-url").value.trim();
   return normalizePlatformShareTarget({
@@ -1436,9 +1438,9 @@ function applyMonitorForm() {
     return;
   }
   if (PLATFORM === "zhihu") {
-    if (title) title.innerHTML = '添加知乎作者监控 <span class="sub">持续记录公开回答和文章</span>';
-    if (lbl) lbl.textContent = "知乎用户主页 / url_token";
-    $("t-url").placeholder = "例如：知乎用户主页或 url_token";
+    if (title) title.innerHTML = '添加知乎关键词监控 <span class="sub">持续记录关键词搜索到的新回答和文章</span>';
+    if (lbl) lbl.textContent = "知乎搜索关键词";
+    $("t-url").placeholder = "例如：人工智能、跨境电商、职场沟通";
     if (parseButton) parseButton.classList.add("hidden");
     resetMonitorTargetState();
     return;
@@ -5834,7 +5836,7 @@ async function addMonitor() {
   const btn = evtBtn() || document.querySelector('button[onclick="addMonitor()"]');
   if (btn?.disabled) return;
   await withBusy(btn, "识别中", async () => {
-  const target_kind = (["xhs", "taobao"].includes(PLATFORM) && $("t-kind")) ? $("t-kind").value : "creator";
+  const target_kind = (["xhs", "zhihu", "taobao"].includes(PLATFORM) && $("t-kind")) ? $("t-kind").value : "creator";
   const normalizedTarget = target_kind === "keyword"
     ? $("t-url").value.trim()
     : await normalizeMonitorTarget(null, { quiet: true });
