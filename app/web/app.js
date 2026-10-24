@@ -1212,10 +1212,10 @@ function applyPlatformUI() {
     : "直接粘贴整段抖音分享文案，将自动提取视频或主页链接";
   resetWatchTargetState();
   const ckl = $("ck-label");
-  if (ckl) ckl.textContent = tb ? "完整 Cookie(淘宝登录会话)" : zh ? "完整 Cookie(含 z_c0 / d_c0 等知乎会话)" : PLATFORM === "xhs"
+  if (ckl) ckl.textContent = tb ? "完整 Cookie 或 Cookie Editor JSON(淘宝登录会话)" : zh ? "完整 Cookie 或 Cookie Editor JSON(含 z_c0 / d_c0 等知乎会话)" : PLATFORM === "xhs"
     ? "完整 Cookie(含 a1;发布需创作者会话)"
     : PLATFORM === "kuaishou" ? "完整 Cookie(含 userId 与 web_st)" : "完整 Cookie(含 sessionid)";
-  if ($("ck-val")) $("ck-val").placeholder = tb ? "从 www.taobao.com 登录后复制完整 Cookie" : zh ? "从 www.zhihu.com 登录后复制完整 Cookie"
+  if ($("ck-val")) $("ck-val").placeholder = tb ? "可粘贴 Cookie Editor 导出的 JSON，或 name=value; 格式" : zh ? "可粘贴 Cookie Editor 导出的 JSON，或 name=value; 格式"
     : PLATFORM === "xhs"
     ? "从 creator.xiaohongshu.com 登录后复制完整 Cookie"
     : PLATFORM === "kuaishou" ? "从 www.kuaishou.com 登录后复制完整 Cookie"

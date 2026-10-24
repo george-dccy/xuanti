@@ -31,6 +31,7 @@ from sqlalchemy import delete, func, or_, update
 from sqlmodel import select
 
 from .browser import (BrowserManager, cookie_string_to_state,
+                       normalize_cookie_input,
                       interactive_login, interactive_creator_login,
                       interactive_xhs_login, interactive_xhs_creator_login,
                       interactive_ks_login, interactive_ks_creator_login,
@@ -1540,11 +1541,24 @@ async def login_cookie(body: CookieIn):
     """Cookie 粘贴兜底登录:转成浏览器登录态。"""
     platform = body.platform if body.platform in (
         "douyin", "xhs", "kuaishou", "zhihu", "taobao") else "douyin"
-    state = cookie_string_to_state(body.cookie, platform)
+    try:
+        normalized_cookie = normalize_cookie_input(body.cookie, platform)
+        state = cookie_string_to_state(normalized_cookie, platform)
+        state_data = json.loads(state or "{}")
+        state_cookies = state_data.get("cookies") or []
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not state_cookies:
+        raise HTTPException(
+            400, "没有解析到有效 Cookie；请粘贴 Cookie Editor 导出的 JSON 或 name=value; 格式")
+    if platform == "zhihu" and not any(
+            str(item.get("name") or "") == "d_c0"
+            for item in state_cookies if isinstance(item, dict)):
+        raise HTTPException(400, "知乎 Cookie 缺少 d_c0；请从知乎登录态重新导出完整 Cookie")
     with get_session() as s:
         acc = DouyinAccount(
             nickname=body.nickname or "Cookie账号", platform=platform,
-            identity_mode="native", cookie=body.cookie.strip(), storage_state=state)
+            identity_mode="native", cookie=normalized_cookie, storage_state=state)
         s.add(acc); s.commit(); s.refresh(acc)
         # 分配画像(profile/UA/指纹/代理):Cookie 会在首次开持久 profile 时桥接注入
         ensure_identity(acc, cfg, session=s, assign_proxy=True)

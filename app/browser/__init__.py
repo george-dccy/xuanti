@@ -1,6 +1,6 @@
 from .identity import (Identity, generate_identity_fields, seed_from_id,
                        fingerprint_script)
-from .manager import BrowserManager, cookie_string_to_state
+from .manager import BrowserManager, cookie_string_to_state, normalize_cookie_input
 from .login import (interactive_login, interactive_creator_login,
                     interactive_xhs_login, interactive_xhs_creator_login,
                     interactive_ks_login, interactive_ks_creator_login,
@@ -23,7 +23,7 @@ from .account_hub import (fetch_account_works, fetch_douyin_account_works_api, f
                           fetch_dm_conversations, fetch_dm_history,
                           do_follow, send_dm, send_dm_api)
 
-__all__ = ["BrowserManager", "cookie_string_to_state",
+__all__ = ["BrowserManager", "cookie_string_to_state", "normalize_cookie_input",
            "Identity", "generate_identity_fields", "seed_from_id", "fingerprint_script",
            "interactive_login", "interactive_creator_login",
            "interactive_xhs_login", "interactive_xhs_creator_login",

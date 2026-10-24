@@ -8,7 +8,7 @@ from sqlmodel import select
 
 import app.engine.monitor as monitor
 import app.db as db
-from app.browser.manager import cookie_string_to_state
+from app.browser.manager import cookie_string_to_state, normalize_cookie_input
 from app.engine.monitor import MonitorEngine
 from app.models import ContentRecord, DouyinAccount, MonitorTarget
 from app.platforms.zhihu.extract import parse_zhihu_items, parse_zhihu_search_items
@@ -79,6 +79,16 @@ def test_zhihu_search_items_unwrap_search_result_objects():
 def test_zhihu_cookie_state_uses_zhihu_domain():
     state = cookie_string_to_state("z_c0=secret; d_c0=session", "zhihu")
     assert '"domain": ".zhihu.com"' in state
+
+
+def test_cookie_editor_json_is_normalized_for_zhihu():
+    raw = '[{"name":"d_c0","value":"dc0-value","domain":".zhihu.com"},' \
+          '{"name":"z_c0","value":"zc0-value","domain":"www.zhihu.com"}]'
+    normalized = normalize_cookie_input(raw, "zhihu")
+    assert "d_c0=dc0-value" in normalized
+    assert "z_c0=zc0-value" in normalized
+    state = cookie_string_to_state(raw, "zhihu")
+    assert '"name": "d_c0"' in state
 
 
 def test_zhihu_signer_is_python_native():

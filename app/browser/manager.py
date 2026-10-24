@@ -1738,18 +1738,82 @@ _COOKIE_DOMAIN = {
 }
 
 
-def cookie_string_to_state(cookie_str: str, platform: str = "douyin") -> str:
-    """把粘贴的 Cookie 串转成 Patchright storage_state JSON(兜底登录用)。"""
-    domain = _COOKIE_DOMAIN.get(platform, ".douyin.com")
-    cookies: List[Dict[str, Any]] = []
-    for part in cookie_str.strip().split(";"):
+def _cookie_records(cookie_input: str, platform: str) -> List[Dict[str, Any]]:
+    """解析 Cookie Editor JSON 或浏览器请求头格式。"""
+    default_domain = _COOKIE_DOMAIN.get(platform, ".douyin.com")
+    raw = str(cookie_input or "").lstrip("\ufeff").strip()
+    if not raw:
+        return []
+
+    if raw.startswith("[") or raw.startswith("{"):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Cookie JSON 格式无效，请重新从 Cookie Editor 导出") from exc
+        if isinstance(parsed, dict):
+            parsed = parsed.get("cookies") or parsed.get("items") or []
+        if not isinstance(parsed, list):
+            raise ValueError("Cookie JSON 应该是数组，或包含 cookies 数组")
+        records: List[Dict[str, Any]] = []
+        root = default_domain.lstrip(".").lower()
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name or item.get("value") is None:
+                continue
+            domain = str(item.get("domain") or default_domain).strip()
+            host = domain.lstrip(".").lower()
+            if host != root and not host.endswith("." + root):
+                continue
+            record: Dict[str, Any] = {
+                "name": name,
+                "value": str(item.get("value") or ""),
+                "domain": domain,
+                "path": str(item.get("path") or "/"),
+            }
+            expiration = item.get("expirationDate", item.get("expires"))
+            try:
+                if expiration is not None and float(expiration) > 0:
+                    record["expires"] = float(expiration)
+            except (TypeError, ValueError):
+                pass
+            if item.get("httpOnly") is not None:
+                record["httpOnly"] = bool(item.get("httpOnly"))
+            if item.get("secure") is not None:
+                record["secure"] = bool(item.get("secure"))
+            same_site = str(item.get("sameSite") or "").lower()
+            same_site_map = {
+                "strict": "Strict", "lax": "Lax", "none": "None",
+                "no_restriction": "None",
+            }
+            if same_site in same_site_map:
+                record["sameSite"] = same_site_map[same_site]
+            records.append(record)
+        return _sanitize_cookies(records)
+
+    records = []
+    for part in raw.split(";"):
         if "=" not in part:
             continue
-        k, v = part.strip().split("=", 1)
-        if not k:
-            continue
-        cookies.append({
-            "name": k.strip(), "value": v.strip(),
-            "domain": domain, "path": "/",
-        })
+        name, value = part.strip().split("=", 1)
+        if name.strip():
+            records.append({
+                "name": name.strip(), "value": value.strip(),
+                "domain": default_domain, "path": "/",
+            })
+    return _sanitize_cookies(records)
+
+
+def normalize_cookie_input(cookie_input: str, platform: str = "douyin") -> str:
+    """将 Cookie Editor JSON 或 Cookie 请求头规范化为请求头格式。"""
+    return "; ".join(
+        f"{item['name']}={item.get('value', '')}"
+        for item in _cookie_records(cookie_input, platform)
+    )
+
+
+def cookie_string_to_state(cookie_str: str, platform: str = "douyin") -> str:
+    """把 Cookie Editor JSON 或 Cookie 串转成 Patchright storage_state。"""
+    cookies = _cookie_records(cookie_str, platform)
     return json.dumps({"cookies": cookies, "origins": []})
