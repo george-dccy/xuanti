@@ -13,6 +13,7 @@ from app.engine.monitor import MonitorEngine
 from app.models import ContentRecord, DouyinAccount, MonitorTarget
 from app.platforms.zhihu.extract import parse_zhihu_items, parse_zhihu_search_items
 from app.platforms.zhihu.resolve import resolve_zhihu_user_token
+from app.platforms.zhihu.sign import sign as sign_zhihu
 from test_project_optimizations import local_project, store
 
 
@@ -78,6 +79,13 @@ def test_zhihu_search_items_unwrap_search_result_objects():
 def test_zhihu_cookie_state_uses_zhihu_domain():
     state = cookie_string_to_state("z_c0=secret; d_c0=session", "zhihu")
     assert '"domain": ".zhihu.com"' in state
+
+
+def test_zhihu_signer_is_python_native():
+    result = sign_zhihu("/api/v4/search_v3?q=test", "d_c0=test")
+    assert result["x-zst-81"].startswith("3_2.0")
+    assert result["x-zse-96"].startswith("2.0_")
+    assert len(result["x-zse-96"]) == 68
 
 
 def test_zhihu_keyword_monitor_records_text_without_download(local_project, monkeypatch):
